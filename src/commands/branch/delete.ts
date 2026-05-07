@@ -12,9 +12,8 @@ export function registerBranchDeleteCommand(branch: Command): void {
   branch
     .command('delete <name>')
     .description('Delete a branch')
-    .option('-y, --yes', 'Skip confirmation')
-    .action(async (name: string, opts: { yes?: boolean }, cmd) => {
-      const { json, apiUrl } = getRootOpts(cmd);
+    .action(async (name: string, _opts: Record<string, never>, cmd) => {
+      const { json, apiUrl, yes } = getRootOpts(cmd);
       try {
         await requireAuth(apiUrl);
         const project = getProjectConfig();
@@ -25,7 +24,7 @@ export function registerBranchDeleteCommand(branch: Command): void {
         const target = branches.find(b => b.name === name);
         if (!target) throw new CLIError(`Branch '${name}' not found.`);
 
-        if (!opts.yes && !json) {
+        if (!yes && !json) {
           const confirmed = await clack.confirm({
             message: `Delete branch '${name}'? This terminates its EC2 instance.`,
           });

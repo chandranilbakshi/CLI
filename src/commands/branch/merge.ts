@@ -14,7 +14,6 @@ import { captureEvent, shutdownAnalytics } from '../../lib/analytics.js';
 
 interface MergeOptions {
   dryRun?: boolean;
-  yes?: boolean;
   saveSql?: string;
 }
 
@@ -23,10 +22,9 @@ export function registerBranchMergeCommand(branch: Command): void {
     .command('merge <name>')
     .description('Merge a branch back to its parent project')
     .option('--dry-run', 'Compute the diff and print rendered SQL; do not apply')
-    .option('-y, --yes', 'Skip confirmation prompt')
     .option('--save-sql <path>', 'Write rendered SQL preview to a file')
     .action(async (name: string, opts: MergeOptions, cmd) => {
-      const { json, apiUrl } = getRootOpts(cmd);
+      const { json, apiUrl, yes } = getRootOpts(cmd);
       try {
         await requireAuth(apiUrl);
         const project = getProjectConfig();
@@ -89,7 +87,7 @@ export function registerBranchMergeCommand(branch: Command): void {
         }
 
         // Confirm before executing (unless --yes or --json).
-        if (!opts.yes && !json) {
+        if (!yes && !json) {
           const parentLabel = project.branched_from?.project_name ?? project.project_name;
           const confirmed = await clack.confirm({
             message: `Apply this merge to parent project '${parentLabel}'?`,
