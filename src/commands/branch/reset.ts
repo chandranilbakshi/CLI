@@ -18,9 +18,8 @@ export function registerBranchResetCommand(branch: Command): void {
   branch
     .command('reset <name>')
     .description("Reset a branch's database back to T0 (the parent snapshot at branch creation)")
-    .option('-y, --yes', 'Skip confirmation')
-    .action(async (name: string, opts: { yes?: boolean }, cmd) => {
-      const { json, apiUrl } = getRootOpts(cmd);
+    .action(async (name: string, _opts: Record<string, never>, cmd) => {
+      const { json, apiUrl, yes } = getRootOpts(cmd);
       try {
         await requireAuth(apiUrl);
         const project = getProjectConfig();
@@ -40,7 +39,7 @@ export function registerBranchResetCommand(branch: Command): void {
         }
         const entryState = target.branch_state;
 
-        if (!opts.yes && !json) {
+        if (!yes && !json) {
           const confirmed = await clack.confirm({
             message:
               `Reset branch '${name}' back to T0? This wipes all schema/data/policy/function/migration changes made on the branch since creation.` +

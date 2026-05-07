@@ -53,10 +53,18 @@ vi.mock('../../lib/analytics.js', () => ({
   shutdownAnalytics: vi.fn(async () => {}),
 }));
 
+const clackConfirmMock = vi.hoisted(() => vi.fn(async () => true));
+vi.mock('@clack/prompts', () => ({
+  confirm: clackConfirmMock,
+  isCancel: () => false,
+}));
+
 describe('branch merge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fsMock.writeFileSync.mockReset();
+    clackConfirmMock.mockClear();
+    clackConfirmMock.mockResolvedValue(true);
   });
 
   it('--dry-run prints rendered_sql + summary, does not call execute', async () => {
@@ -108,6 +116,27 @@ describe('branch merge', () => {
     } finally {
       console.log = origLog;
     }
+    const { mergeBranchExecuteApi } = await import('../../lib/api/platform.js');
+    expect(mergeBranchExecuteApi).toHaveBeenCalledWith('b1', undefined);
+  });
+
+  // Regression: -y on the merge subcommand previously got shadowed by the
+  // same-named global option, so the prompt fired even when the user passed -y.
+  // Test nests under a `branch` parent to mirror the real CLI wiring, since
+  // the shadowing only manifested through that registration path.
+  it('-y after positional skips confirmation prompt (no --json)', async () => {
+    const program = new Command().exitOverride();
+    program.option('--json').option('--api-url <url>').option('-y, --yes');
+    const branch = program.command('branch');
+    registerBranchMergeCommand(branch);
+    const origLog = console.log;
+    console.log = () => {};
+    try {
+      await program.parseAsync(['branch', 'merge', 'feat-x', '-y'], { from: 'user' });
+    } finally {
+      console.log = origLog;
+    }
+    expect(clackConfirmMock).not.toHaveBeenCalled();
     const { mergeBranchExecuteApi } = await import('../../lib/api/platform.js');
     expect(mergeBranchExecuteApi).toHaveBeenCalledWith('b1', undefined);
   });
