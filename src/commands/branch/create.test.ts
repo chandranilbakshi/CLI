@@ -203,6 +203,50 @@ describe('branch create', () => {
     expect(() => JSON.parse(logs.join('\n'))).not.toThrow();
   });
 
+  it('switch failure after a successful create reports "switch failed", not "creation failed"', async () => {
+    const { getProjectConfig } = await import('../../lib/config.js');
+    (getProjectConfig as any).mockReturnValue({
+      project_id: 'p1',
+      project_name: 'parent',
+      org_id: 'o1',
+      appkey: 'p1ky',
+      region: 'us-east',
+      api_key: 'k',
+      oss_host: 'https://p1ky.us-east.insforge.app',
+    });
+    const { runBranchSwitch } = await import('./switch.js');
+    (runBranchSwitch as any).mockRejectedValueOnce(new Error('network down'));
+
+    const program = new Command().exitOverride();
+    program.option('--json').option('--api-url <url>').option('-y, --yes');
+    registerBranchCreateCommand(program);
+    let exitCode: number | undefined;
+    const origExit = process.exit;
+    (process.exit as any) = (code?: number) => {
+      exitCode = code;
+      throw new Error('__exit__');
+    };
+    const origStderr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (() => true) as any;
+    try {
+      await program
+        .parseAsync(['create', 'feat-x', '--mode', 'full'], { from: 'user' })
+        .catch(() => {});
+    } finally {
+      process.exit = origExit;
+      process.stderr.write = origStderr;
+    }
+    expect(exitCode).toBe(1);
+    // The crucial assertion: spinner stops with switch-failure copy, not
+    // the misleading "creation failed" line.
+    expect(spinnerMock.stop).toHaveBeenCalledTimes(1);
+    const [stopMsg, stopCode] = spinnerMock.stop.mock.calls[0];
+    expect(stopMsg).toContain('switching context failed');
+    expect(stopMsg).toContain('insforge branch switch feat-x');
+    expect(stopMsg).not.toContain('creation failed');
+    expect(stopCode).toBe(1);
+  });
+
   it('non-JSON path drives the spinner and keeps it active through switch', async () => {
     const { getProjectConfig } = await import('../../lib/config.js');
     (getProjectConfig as any).mockReturnValue({

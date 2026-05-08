@@ -46,6 +46,11 @@ export function registerBranchCreateCommand(branch: Command): void {
         // ready })` below remains the sole authoritative output.
         const spinner = !json ? clack.spinner() : null;
         let ready: Branch;
+        // Tracks whether the branch reached `ready` state in the cloud — once
+        // true, any later throw is a switch failure (local), not a creation
+        // failure. Lets the catch render an accurate message instead of the
+        // misleading "creation failed" line for an already-created branch.
+        let provisioned = false;
         try {
           spinner?.start(`Creating branch '${name}'...`);
           const created = await createBranchApi(project.project_id, { mode, name }, apiUrl);
@@ -55,21 +60,29 @@ export function registerBranchCreateCommand(branch: Command): void {
           });
           spinner?.message(`Branch '${name}' created (appkey: ${created.appkey}). Provisioning...`);
           ready = await pollUntilReady(created.id, apiUrl, spinner);
+          provisioned = ready.branch_state === 'ready';
 
-          if (ready.branch_state === 'ready' && opts.switch) {
+          if (provisioned && opts.switch) {
             spinner?.message('Branch ready. Switching context...');
             // silent: true always — the spinner owns user-facing output, and
             // runBranchSwitch's outputSuccess would otherwise interleave with
             // the active spinner frame.
             await runBranchSwitch({ name, apiUrl, json, silent: true });
             spinner?.stop(`Branch '${name}' is ready and active`);
-          } else if (ready.branch_state === 'ready') {
+          } else if (provisioned) {
             spinner?.stop(`Branch '${name}' is ready`);
           } else {
             spinner?.stop(`Branch '${name}' is in '${ready.branch_state}' state`);
           }
         } catch (err) {
-          spinner?.stop(`Branch '${name}' creation failed`, 1);
+          if (provisioned) {
+            spinner?.stop(
+              `Branch '${name}' is ready, but switching context failed — run \`insforge branch switch ${name}\` to retry`,
+              1,
+            );
+          } else {
+            spinner?.stop(`Branch '${name}' creation failed`, 1);
+          }
           throw err;
         }
 
