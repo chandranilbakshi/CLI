@@ -38,10 +38,12 @@ export function registerBranchCreateCommand(branch: Command): void {
         }
         const mode = opts.mode as BranchMode;
 
-        // Single spinner spans the slow POST and the provisioning poll so the
-        // user sees continuous progress instead of a 2-minute silent hang.
-        // JSON mode skips the spinner — `outputJson({ branch: ready })` below
-        // remains the sole authoritative output.
+        // Single spinner spans the slow POST, provisioning poll, and the
+        // optional auto-switch. The user sees continuous progress instead of a
+        // 2-minute silent hang, and a switch failure is rendered with the same
+        // red error frame as a create failure (no misleading "ready" line
+        // before an error). JSON mode skips the spinner — `outputJson({ branch:
+        // ready })` below remains the sole authoritative output.
         const spinner = !json ? clack.spinner() : null;
         let ready: Branch;
         try {
@@ -53,7 +55,15 @@ export function registerBranchCreateCommand(branch: Command): void {
           });
           spinner?.message(`Branch '${name}' created (appkey: ${created.appkey}). Provisioning...`);
           ready = await pollUntilReady(created.id, apiUrl, spinner);
-          if (ready.branch_state === 'ready') {
+
+          if (ready.branch_state === 'ready' && opts.switch) {
+            spinner?.message('Branch ready. Switching context...');
+            // silent: true always — the spinner owns user-facing output, and
+            // runBranchSwitch's outputSuccess would otherwise interleave with
+            // the active spinner frame.
+            await runBranchSwitch({ name, apiUrl, json, silent: true });
+            spinner?.stop(`Branch '${name}' is ready and active`);
+          } else if (ready.branch_state === 'ready') {
             spinner?.stop(`Branch '${name}' is ready`);
           } else {
             spinner?.stop(`Branch '${name}' is in '${ready.branch_state}' state`);
@@ -61,14 +71,6 @@ export function registerBranchCreateCommand(branch: Command): void {
         } catch (err) {
           spinner?.stop(`Branch '${name}' creation failed`, 1);
           throw err;
-        }
-
-        // Run auto-switch BEFORE emitting the final JSON payload so a failed
-        // switch does not surface as a successful create.
-        if (opts.switch && ready.branch_state === 'ready') {
-          // silent in JSON mode so we don't emit two JSON documents — the
-          // single `outputJson({ branch: ready })` below is authoritative.
-          await runBranchSwitch({ name, apiUrl, json, silent: json });
         }
 
         if (json) {

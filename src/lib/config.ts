@@ -91,7 +91,15 @@ export function getProjectConfig(): ProjectConfig | null {
     return null;
   }
   const raw = readFileSync(file, 'utf-8');
-  return JSON.parse(raw);
+  const config = JSON.parse(raw) as ProjectConfig;
+  // Heal legacy configs written by `branch switch` before 0.1.70 — that build
+  // stored `oss_host` as a bare hostname, which `fetch()` rejects with
+  // "Failed to parse URL". Normalize in-memory so existing links keep working;
+  // the next `saveProjectConfig` call persists the fix to disk.
+  if (config.oss_host && !/^https?:\/\//.test(config.oss_host) && config.appkey && config.region) {
+    config.oss_host = buildOssHost(config.appkey, config.region);
+  }
+  return config;
 }
 
 export function saveProjectConfig(config: ProjectConfig): void {
