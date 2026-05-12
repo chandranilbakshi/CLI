@@ -229,7 +229,7 @@ export function registerProjectLinkCommand(program: Command): void {
                 }
               }
 
-              await installSkills(json);
+              await installSkills(json, opts.auth as string | undefined);
               trackCommand('link', 'oss-org', { direct: true, template });
               await reportCliUsage('cli.link_direct', true, 6, projectConfig);
 
@@ -291,7 +291,7 @@ export function registerProjectLinkCommand(program: Command): void {
             trackCommand('link', 'oss-org', { direct: true });
 
             // Install agent skills
-            await installSkills(json);
+            await installSkills(json, opts.auth as string | undefined);
             await reportCliUsage('cli.link_direct', true, 6, projectConfig);
 
             // Report agent-connected event (best-effort)
@@ -475,7 +475,7 @@ export function registerProjectLinkCommand(program: Command): void {
           }
 
           // Install agent skills inside the project directory
-          await installSkills(json);
+          await installSkills(json, opts.auth as string | undefined);
           await reportCliUsage('cli.link', true, 6, projectConfig);
 
           if (!json) {
@@ -517,7 +517,7 @@ export function registerProjectLinkCommand(program: Command): void {
           }
 
           // No template — install agent skills in the current directory
-          await installSkills(json);
+          await installSkills(json, opts.auth as string | undefined);
           await reportCliUsage('cli.link', true, 6, projectConfig);
 
           if (!json) {
