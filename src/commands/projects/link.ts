@@ -100,7 +100,13 @@ export function registerProjectLinkCommand(program: Command): void {
         // into the current directory without auth, org/project picker, or
         // writing .insforge/project.json. The agent walks the user through
         // provisioning later, when it actually needs InsForge backend services.
-        const isSkillsOnly = Object.values(opts).every((v) => v === undefined);
+        const isSkillsOnly =
+          opts.projectId === undefined &&
+          opts.orgId === undefined &&
+          opts.template === undefined &&
+          opts.auth === undefined &&
+          opts.apiBaseUrl === undefined &&
+          opts.apiKey === undefined;
 
         if (isSkillsOnly) {
           try {
