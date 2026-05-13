@@ -27,6 +27,9 @@ import type { DiffChange } from './config-diff.js';
 
 type RawMetadata = {
   auth?: Record<string, unknown>;
+  // Cloud-only slice. Self-host backends omit the key entirely — that's the
+  // signal we use to gate [deployments] writes (self-host can't honor them).
+  deployments?: Record<string, unknown>;
 };
 
 /**
@@ -43,6 +46,30 @@ export function metadataSupports(raw: RawMetadata, change: DiffChange): boolean 
       'allowedRedirectUrls' in raw.auth
     );
   }
+  if (change.section === 'auth.smtp') {
+    // SMTP is whole-object: a backend either exposes `smtpConfig` in
+    // /api/metadata (and accepts PUT /api/auth/smtp-config) or doesn't.
+    return (
+      raw?.auth !== undefined &&
+      raw.auth !== null &&
+      typeof raw.auth === 'object' &&
+      'smtpConfig' in raw.auth
+    );
+  }
+  if (change.section === 'deployments' && change.key === 'subdomain') {
+    // Presence-only probe: cloud backends always carry `customSlug` in the
+    // slice (null when unset); self-host omits the whole `deployments` key.
+    return (
+      raw?.deployments !== undefined &&
+      raw.deployments !== null &&
+      typeof raw.deployments === 'object'
+    );
+  }
+  // Exhaustiveness check — if a new DiffChange variant lands without a
+  // matching probe, TS errors at compile time instead of silently dumping
+  // every apply of that section into skipped[] forever.
+  const _exhaustive: never = change;
+  void _exhaustive;
   return false;
 }
 
@@ -50,5 +77,6 @@ export function metadataSupports(raw: RawMetadata, change: DiffChange): boolean 
  * Human-readable path for a change, used in skipped/applied summaries.
  */
 export function changePath(change: DiffChange): string {
+  if (change.section === 'auth.smtp') return 'auth.smtp';
   return `${change.section}.${change.key}`;
 }

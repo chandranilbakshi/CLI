@@ -71,9 +71,21 @@ beforeEach(() => {
 });
 
 describe('config export (capability probe)', () => {
-  it('emits the auth section when the backend exposes the field', async () => {
+  it('emits both auth sections when the backend exposes both fields', async () => {
     nextMetadataResponse = {
-      auth: { allowedRedirectUrls: ['https://a.com', 'https://b.com'] },
+      auth: {
+        allowedRedirectUrls: ['https://a.com', 'https://b.com'],
+        smtpConfig: {
+          enabled: false,
+          host: '',
+          port: 587,
+          username: '',
+          hasPassword: false,
+          senderEmail: '',
+          senderName: '',
+          minIntervalSeconds: 60,
+        },
+      },
     };
     const target = join(tmp, 'insforge.toml');
     const program = makeProgram();
@@ -86,20 +98,105 @@ describe('config export (capability probe)', () => {
       '--force',
     ]);
 
-    const result = docs[0] as { config: { auth?: unknown }; skipped: string[] };
-    expect(result.config.auth).toEqual({
-      allowed_redirect_urls: ['https://a.com', 'https://b.com'],
-    });
-    expect(result.skipped).toEqual([]);
+    const result = docs[0] as {
+      config: { auth?: { smtp?: unknown; allowed_redirect_urls?: unknown } };
+      skipped: string[];
+    };
+    expect(result.config.auth?.allowed_redirect_urls).toEqual([
+      'https://a.com',
+      'https://b.com',
+    ]);
+    expect(result.config.auth?.smtp).toBeDefined();
+    // No deployments slice in this fixture — that section gets skipped, but
+    // the auth slice still produces a valid TOML.
+    expect(result.skipped).toEqual(['deployments.subdomain']);
 
     const written = readFileSync(target, 'utf8');
     expect(written).toContain('allowed_redirect_urls');
+    expect(written).toContain('[auth.smtp]');
 
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('omits the auth section and reports skipped when the field is absent', async () => {
-    // Older backend — auth metadata returns, but no allowedRedirectUrls key.
+  it('emits env(SMTP_PASSWORD) placeholder when hasPassword is true', async () => {
+    nextMetadataResponse = {
+      auth: {
+        allowedRedirectUrls: [],
+        smtpConfig: {
+          enabled: true,
+          host: 'smtp.gmail.com',
+          port: 587,
+          username: 'user@gmail.com',
+          hasPassword: true,
+          senderEmail: 'noreply@app.com',
+          senderName: 'App',
+          minIntervalSeconds: 60,
+        },
+      },
+    };
+    const target = join(tmp, 'insforge.toml');
+    const program = makeProgram();
+    const docs = await runJson(program, [
+      '--json',
+      'config',
+      'export',
+      '--out',
+      target,
+      '--force',
+    ]);
+
+    const result = docs[0] as {
+      config: { auth?: { smtp?: { password?: string } } };
+      skipped: string[];
+    };
+    expect(result.config.auth?.smtp?.password).toBe('env(SMTP_PASSWORD)');
+
+    const written = readFileSync(target, 'utf8');
+    expect(written).toContain('password = "env(SMTP_PASSWORD)"');
+    expect(written).toContain('insforge secrets add SMTP_PASSWORD');
+
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('omits the password field when hasPassword is false', async () => {
+    nextMetadataResponse = {
+      auth: {
+        allowedRedirectUrls: [],
+        smtpConfig: {
+          enabled: false,
+          host: '',
+          port: 587,
+          username: '',
+          hasPassword: false,
+          senderEmail: '',
+          senderName: '',
+          minIntervalSeconds: 60,
+        },
+      },
+    };
+    const target = join(tmp, 'insforge.toml');
+    const program = makeProgram();
+    const docs = await runJson(program, [
+      '--json',
+      'config',
+      'export',
+      '--out',
+      target,
+      '--force',
+    ]);
+
+    const result = docs[0] as {
+      config: { auth?: { smtp?: { password?: string } } };
+    };
+    expect(result.config.auth?.smtp?.password).toBeUndefined();
+
+    const written = readFileSync(target, 'utf8');
+    expect(written).not.toContain('password');
+
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('omits sections and reports skipped when fields are absent (older backend)', async () => {
     nextMetadataResponse = { auth: { someOtherField: 'x' } };
     const target = join(tmp, 'insforge.toml');
     const program = makeProgram();
@@ -114,9 +211,77 @@ describe('config export (capability probe)', () => {
 
     const result = docs[0] as { config: { auth?: unknown }; skipped: string[] };
     expect(result.config.auth).toBeUndefined();
-    expect(result.skipped).toEqual(['auth.allowed_redirect_urls']);
+    expect(result.skipped.sort()).toEqual([
+      'auth.allowed_redirect_urls',
+      'auth.smtp',
+      'deployments.subdomain',
+    ]);
     // File is still written so future apply cycles work — just empty.
     expect(existsSync(target)).toBe(true);
+
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('emits [deployments] when cloud backend exposes a custom slug', async () => {
+    nextMetadataResponse = {
+      auth: { allowedRedirectUrls: [] },
+      deployments: { customSlug: 'my-app' },
+    };
+    const target = join(tmp, 'insforge.toml');
+    const program = makeProgram();
+    const docs = await runJson(program, [
+      '--json',
+      'config',
+      'export',
+      '--out',
+      target,
+      '--force',
+    ]);
+
+    const result = docs[0] as {
+      config: { deployments?: { subdomain?: string } };
+      skipped: string[];
+    };
+    expect(result.config.deployments).toEqual({ subdomain: 'my-app' });
+    // No smtpConfig in fixture → that section gets skipped, but the
+    // deployments section still emits cleanly.
+    expect(result.skipped).toEqual(['auth.smtp']);
+
+    const written = readFileSync(target, 'utf8');
+    expect(written).toContain('[deployments]');
+    expect(written).toContain('subdomain = "my-app"');
+
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('omits [deployments] when cloud backend has no slug set', async () => {
+    // Slice present but customSlug: null — the project is on its default
+    // URL. Emitting subdomain = "" would mean "clear on apply" (which fails
+    // the 3-char min), so we leave the section out entirely.
+    nextMetadataResponse = {
+      auth: { allowedRedirectUrls: [] },
+      deployments: { customSlug: null },
+    };
+    const target = join(tmp, 'insforge.toml');
+    const program = makeProgram();
+    const docs = await runJson(program, [
+      '--json',
+      'config',
+      'export',
+      '--out',
+      target,
+      '--force',
+    ]);
+
+    const result = docs[0] as {
+      config: { deployments?: unknown };
+      skipped: string[];
+    };
+    expect(result.config.deployments).toBeUndefined();
+    expect(result.skipped).toEqual(['auth.smtp']);
+
+    const written = readFileSync(target, 'utf8');
+    expect(written).not.toContain('[deployments]');
 
     rmSync(tmp, { recursive: true, force: true });
   });

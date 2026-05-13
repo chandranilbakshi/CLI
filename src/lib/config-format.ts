@@ -30,5 +30,33 @@ export function formatPlan(result: DiffResult): string {
 }
 
 function formatChange(c: DiffChange): string {
+  if (c.section === 'auth.smtp') {
+    const lines = [`~ smtp config:`];
+    const from = c.from;
+    const to = c.to;
+    for (const key of [
+      'enabled',
+      'host',
+      'port',
+      'username',
+      'password',
+      'sender_email',
+      'sender_name',
+      'min_interval_seconds',
+    ] as const) {
+      if (from[key] !== to[key]) {
+        lines.push(`    ${key}: ${JSON.stringify(from[key])} → ${JSON.stringify(to[key])}`);
+      }
+    }
+    if (c.passwordEnvRef) {
+      lines.push(`    (password force-resent from env(${c.passwordEnvRef}))`);
+    }
+    return lines.join('\n    ');
+  }
+  if (c.section === 'deployments' && c.key === 'subdomain') {
+    const fromLabel = c.from === null ? '(unset)' : JSON.stringify(c.from);
+    const toLabel = c.to === null ? '(unset)' : JSON.stringify(c.to);
+    return `~ ${c.key}: ${fromLabel} → ${toLabel}`;
+  }
   return `~ ${c.key}: ${JSON.stringify(c.from)} → ${JSON.stringify(c.to)}`;
 }
