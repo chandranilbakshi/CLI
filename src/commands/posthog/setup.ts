@@ -1,5 +1,4 @@
 import type { Command } from 'commander';
-import { spawnSync } from 'node:child_process';
 import * as clack from '@clack/prompts';
 import pc from 'picocolors';
 import { getProjectConfig, getAccessToken } from '../../lib/config.js';
@@ -16,7 +15,7 @@ import {
   pollPosthogConnection,
   startPosthogCliFlow,
 } from '../../lib/api/posthog.js';
-import { outputJson, outputSuccess, outputInfo } from '../../lib/output.js';
+import { outputJson, outputSuccess } from '../../lib/output.js';
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 15 * 60 * 1000;
@@ -25,16 +24,13 @@ const MAX_TRANSIENT_RETRIES = 5;
 interface SetupResult {
   /** Whether the dashboard connection already existed (skipped OAuth) or was just established. */
   dashboardConnection: 'already-connected' | 'newly-connected';
-  /** True when JSON mode skipped the wizard step (wizard is interactive and incompatible with piped stdio). */
-  wizardSkipped: boolean;
-  /** Wizard process exit code; only set when wizardSkipped is false. */
-  wizardExitCode?: number;
-  /** Command the caller should run to complete the wizard step; only set when wizardSkipped is true. */
-  wizardCommand?: string;
+  /** Always true — CLI defers SDK install to the user-run `@posthog/wizard`. */
+  wizardSkipped: true;
+  /** The command the user should run themselves to complete the SDK install. */
+  wizardCommand: string;
 }
 
-// `npx` is installed as `npx.cmd` on Windows; passing the bare name to spawn
-// without a shell results in ENOENT. Use the platform-specific binary.
+// `npx` is installed as `npx.cmd` on Windows.
 const NPX_COMMAND = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const WIZARD_COMMAND = `${NPX_COMMAND} -y @posthog/wizard@latest`;
 
@@ -70,13 +66,10 @@ interface RunSetupOpts {
 //   1. Ensure the InsForge dashboard has a PostHog connection (cli-start /
 //      OAuth). This is what populates `posthog_connections` in cloud-backend
 //      and makes the in-product Analytics page renderable.
-//   2. Spawn `npx @posthog/wizard` — it runs its own OAuth, lets the user pick
-//      a PostHog project, and installs + wires up the SDK in the app code.
-//
-// The two OAuths are independent and may even land on different PostHog
-// projects (rare in practice — same user account usually means same project).
-// We don't pass anything to the wizard; per its docs it discovers the project
-// interactively.
+//   2. Print the `npx @posthog/wizard` command and exit. The wizard is
+//      interactive (browser OAuth + framework picker) and we always defer it
+//      to the user's own terminal — agent shells and CI runners can't drive
+//      it, and detecting "are we really attended?" is too fragile.
 async function runSetup(opts: RunSetupOpts): Promise<SetupResult> {
   // 1. Linked project
   const proj = getProjectConfig();
@@ -98,54 +91,25 @@ async function runSetup(opts: RunSetupOpts): Promise<SetupResult> {
   // 3. Ensure dashboard connection exists
   const dashboardConnection = await ensureDashboardConnection(proj.project_id, token, opts);
 
-  // 4. Run the official PostHog wizard for app-code wiring.
-  //
-  // JSON mode is for scripted / headless callers, but the wizard is interactive
-  // (terminal TUI for framework + project selection, browser OAuth). Skip it
-  // and surface the command so the caller can run it themselves under a real
-  // TTY; piping its stdio would either hang or swallow the prompts.
-  if (opts.json) {
-    return {
-      dashboardConnection,
-      wizardSkipped: true,
-      wizardCommand: WIZARD_COMMAND,
-    };
+  // 4. Print the wizard command and exit. The wizard is interactive (browser
+  // OAuth + framework picker) and reliably detecting "do we have a real,
+  // attended TTY?" is fragile — agent shells allocate a PTY but never type
+  // into it; CI runners vary. Rather than try to autodetect, we always defer
+  // the wizard step to the user; they paste-and-run one command in their own
+  // terminal. CLI's job ends here.
+  if (!opts.json) {
+    clack.note(
+      `Run this in your terminal to wire PostHog into your app code:\n\n` +
+        `  ${WIZARD_COMMAND}\n\n` +
+        `Once it completes, open the Analytics page in your InsForge dashboard.`,
+      'Next step',
+    );
   }
-
-  outputInfo('Running the official PostHog setup wizard to wire PostHog into your app...');
-  outputInfo(
-    pc.dim('(it will open a browser for OAuth and let you pick a PostHog project)'),
-  );
-
-  const wizardResult = spawnSync(NPX_COMMAND, ['-y', '@posthog/wizard@latest'], {
-    stdio: 'inherit',
-    env: process.env,
-  });
-
-  if (wizardResult.error) {
-    throw new CLIError(`Failed to launch PostHog wizard: ${wizardResult.error.message}`);
-  }
-  const exitCode = wizardResult.status ?? 1;
-  // Treat user-initiated cancellation (Ctrl+C → 130 / SIGINT) as a clean exit
-  // rather than an error; the user just chose to abort the wizard step.
-  if (wizardResult.signal === 'SIGINT' || exitCode === 130) {
-    clack.outro('Setup cancelled.');
-    return {
-      dashboardConnection,
-      wizardSkipped: false,
-      wizardExitCode: exitCode,
-    };
-  }
-  if (exitCode !== 0) {
-    throw new CLIError(`PostHog wizard exited with code ${exitCode}.`);
-  }
-
-  clack.outro('Done. Open the Analytics page in your InsForge dashboard to view data.');
 
   return {
     dashboardConnection,
-    wizardSkipped: false,
-    wizardExitCode: exitCode,
+    wizardSkipped: true,
+    wizardCommand: WIZARD_COMMAND,
   };
 }
 
@@ -191,9 +155,12 @@ async function runConnectFlow(
     process.stderr.write('Your browser should open automatically. If not, copy the URL above.\n');
   } else {
     clack.log.info('PostHog is not yet connected to your InsForge dashboard.');
-    outputInfo('');
-    outputInfo(`Open this URL to authorize PostHog:\n  ${pc.cyan(pc.underline(authorizeUrl))}`);
-    outputInfo('');
+    if (opts.skipBrowser) {
+      clack.log.info(`Open this URL to authorize PostHog:\n${pc.cyan(pc.underline(authorizeUrl))}`);
+    } else {
+      clack.log.info('Opening browser to authorize PostHog...');
+      clack.log.info(`If browser doesn't open, visit:\n${pc.cyan(pc.underline(authorizeUrl))}`);
+    }
   }
 
   if (!opts.skipBrowser) {
@@ -206,7 +173,13 @@ async function runConnectFlow(
   }
 
   const spinner = !opts.json && isInteractive ? clack.spinner() : null;
-  spinner?.start('Waiting for InsForge dashboard connection... (timeout: 15 minutes)');
+  if (spinner) {
+    spinner.start('Waiting for InsForge dashboard connection... (timeout: 15 minutes)');
+  } else if (!opts.json) {
+    // Non-interactive (agent / CI / non-TTY): spinner can't animate, but the
+    // user still needs to know we're polling and how long we'll wait.
+    clack.log.info('Waiting for InsForge dashboard connection (up to 15 minutes)...');
+  }
 
   try {
     await pollPosthogConnection(
@@ -227,9 +200,19 @@ async function runConnectFlow(
       },
       opts.apiUrl,
     );
-    spinner?.stop('InsForge dashboard connection received.');
+    // Always print success — spinner.stop only renders in TTY, but the agent /
+    // non-interactive user needs to see the outcome of the wait.
+    if (spinner) {
+      spinner.stop('InsForge dashboard connection received.');
+    } else if (!opts.json) {
+      clack.log.success('InsForge dashboard connection received.');
+    }
   } catch (err) {
-    spinner?.stop('InsForge dashboard connection wait failed.');
+    if (spinner) {
+      spinner.stop('InsForge dashboard connection wait failed.');
+    } else if (!opts.json) {
+      clack.log.error('InsForge dashboard connection wait failed.');
+    }
     throw err;
   }
 }

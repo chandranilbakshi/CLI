@@ -1,13 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Command } from 'commander';
-import type { SpawnSyncReturns } from 'node:child_process';
-
-// Hoisted mocks — vi.mock factories are hoisted above ordinary top-level
-// statements, so any const they reference must be hoisted via vi.hoisted.
-const { spawnSyncMock } = vi.hoisted(() => ({ spawnSyncMock: vi.fn() }));
-vi.mock('node:child_process', () => ({
-  spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
-}));
 
 const apiMock = vi.hoisted(() => ({
   startPosthogCliFlow: vi.fn(),
@@ -24,17 +16,19 @@ vi.mock('../../lib/config.js', () => configMock);
 
 vi.mock('../../lib/prompts.js', () => ({ isInteractive: false }));
 
-// `open` is loaded dynamically inside runConnectFlow; mock the module so the
-// real browser launch doesn't fire during tests.
+// `open` is loaded dynamically inside runConnectFlow; mock so the real browser
+// launch doesn't fire during tests.
 vi.mock('open', () => ({ default: vi.fn() }));
 
 // Silence interactive UI noise from clack — tests assert on mocks, not stdout.
+const clackNoteMock = vi.hoisted(() => vi.fn());
 vi.mock('@clack/prompts', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   return {
     ...actual,
     intro: vi.fn(),
     outro: vi.fn(),
+    note: clackNoteMock,
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() })),
   };
@@ -50,38 +44,6 @@ vi.mock('../../lib/output.js', () => outputMock);
 // Imports must come AFTER the vi.mock calls because Vitest hoists the mocks
 // but ESM module evaluation order still matters.
 import { registerPosthogSetupCommand } from './setup.js';
-
-function spawnOk(): SpawnSyncReturns<string> {
-  return { pid: 1, output: ['', '', ''], stdout: '', stderr: '', status: 0, signal: null };
-}
-
-function spawnExit(code: number): SpawnSyncReturns<string> {
-  return { pid: 1, output: ['', '', ''], stdout: '', stderr: '', status: code, signal: null };
-}
-
-function spawnSignal(signal: NodeJS.Signals): SpawnSyncReturns<string> {
-  // When killed by signal, Node sets status: null and exposes the signal name.
-  return {
-    pid: 1,
-    output: ['', '', ''],
-    stdout: '',
-    stderr: '',
-    status: null as unknown as number,
-    signal,
-  };
-}
-
-function spawnSpawnError(err: Error): SpawnSyncReturns<string> {
-  return {
-    pid: 0,
-    output: ['', '', ''],
-    stdout: '',
-    stderr: '',
-    status: null as unknown as number,
-    signal: null,
-    error: err,
-  };
-}
 
 interface RunResult {
   exitCode?: number;
@@ -114,19 +76,15 @@ async function runSetup(argv: string[]): Promise<RunResult> {
 }
 
 beforeEach(() => {
-  spawnSyncMock.mockReset();
   apiMock.startPosthogCliFlow.mockReset();
   apiMock.pollPosthogConnection.mockReset();
   apiMock.fetchPosthogConnection.mockReset();
   outputMock.outputJson.mockReset();
   outputMock.outputInfo.mockReset();
   outputMock.outputSuccess.mockReset();
+  clackNoteMock.mockReset();
   configMock.getProjectConfig.mockReturnValue({ project_id: 'p1', project_name: 'Test Project' });
   configMock.getAccessToken.mockReturnValue('tok');
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
 });
 
 describe('posthog setup', () => {
@@ -137,7 +95,6 @@ describe('posthog setup', () => {
         kind: 'connected',
         connection: { apiKey: 'phc_', host: 'h', posthogProjectId: '1' },
       });
-      spawnSyncMock.mockReturnValue(spawnOk());
 
       await runSetup(['--skip-browser']);
 
@@ -156,7 +113,6 @@ describe('posthog setup', () => {
         host: 'h',
         posthogProjectId: '1',
       });
-      spawnSyncMock.mockReturnValue(spawnOk());
 
       await runSetup(['--skip-browser']);
 
@@ -164,18 +120,18 @@ describe('posthog setup', () => {
       expect(apiMock.fetchPosthogConnection).not.toHaveBeenCalled();
     });
 
-    it('fast-path data-drift: cli-start says connected but /connection says no → exits, wizard never spawns', async () => {
+    it('fast-path data-drift: cli-start says connected but /connection says no → exits non-zero', async () => {
       apiMock.startPosthogCliFlow.mockResolvedValue({ type: 'connected' });
       apiMock.fetchPosthogConnection.mockResolvedValue({ kind: 'not-connected' });
 
       const r = await runSetup(['--skip-browser']);
 
       expect(r.exitCode).toBeGreaterThan(0);
-      expect(spawnSyncMock).not.toHaveBeenCalled();
+      expect(clackNoteMock).not.toHaveBeenCalled();
     });
   });
 
-  describe('wizard step', () => {
+  describe('wizard handoff', () => {
     beforeEach(() => {
       apiMock.startPosthogCliFlow.mockResolvedValue({ type: 'connected' });
       apiMock.fetchPosthogConnection.mockResolvedValue({
@@ -184,72 +140,32 @@ describe('posthog setup', () => {
       });
     });
 
-    it('spawn error (ENOENT) → exits non-zero', async () => {
-      const enoent = Object.assign(new Error('spawn npx ENOENT'), { code: 'ENOENT' });
-      spawnSyncMock.mockReturnValue(spawnSpawnError(enoent));
-
-      const r = await runSetup(['--skip-browser']);
-
-      expect(spawnSyncMock).toHaveBeenCalledOnce();
-      expect(r.exitCode).toBeGreaterThan(0);
-    });
-
-    it('non-zero exit → exits non-zero', async () => {
-      spawnSyncMock.mockReturnValue(spawnExit(1));
-
-      const r = await runSetup(['--skip-browser']);
-
-      expect(r.exitCode).toBeGreaterThan(0);
-    });
-
-    it('SIGINT (exit 130) → clean exit, no error thrown', async () => {
-      spawnSyncMock.mockReturnValue(spawnExit(130));
-
-      const r = await runSetup(['--skip-browser']);
-
-      // Cancellation is graceful — runSetup returns normally, no handleError
-      // path, so process.exit was never called by the CLI.
-      expect(r.exitCode).toBeUndefined();
-    });
-
-    it('SIGINT signal (status=null, signal=SIGINT) → clean exit', async () => {
-      spawnSyncMock.mockReturnValue(spawnSignal('SIGINT'));
-
-      const r = await runSetup(['--skip-browser']);
-
-      expect(r.exitCode).toBeUndefined();
-    });
-
-    it('uses platform-aware npx binary', async () => {
-      spawnSyncMock.mockReturnValue(spawnOk());
-
+    it('always prints the wizard command in a Next step note (no spawn, no TTY check)', async () => {
       await runSetup(['--skip-browser']);
 
-      const [bin, args] = spawnSyncMock.mock.calls[0];
-      expect(bin).toMatch(/^npx(\.cmd)?$/);
-      expect(args).toEqual(['-y', '@posthog/wizard@latest']);
+      expect(clackNoteMock).toHaveBeenCalledOnce();
+      const [body, title] = clackNoteMock.mock.calls[0];
+      expect(title).toBe('Next step');
+      expect(body).toMatch(/npx(\.cmd)? -y @posthog\/wizard@latest/);
     });
   });
 
   describe('--json mode', () => {
-    it('skips wizard, emits JSON with wizardCommand', async () => {
+    it('emits JSON with wizardSkipped=true and wizardCommand', async () => {
       apiMock.startPosthogCliFlow.mockResolvedValue({ type: 'connected' });
       apiMock.fetchPosthogConnection.mockResolvedValue({
         kind: 'connected',
         connection: { apiKey: 'phc_', host: 'h', posthogProjectId: '1' },
       });
 
-      await runSetup(['--skip-browser']);
-      spawnSyncMock.mockClear();
-
-      // re-run in JSON mode
       const program = new Command();
       program.option('--json').option('--api-url <url>').option('-y, --yes');
       const posthog = program.command('posthog');
       registerPosthogSetupCommand(posthog);
       await program.parseAsync(['node', 'test', '--json', 'posthog', 'setup', '--skip-browser']);
 
-      expect(spawnSyncMock).not.toHaveBeenCalled();
+      // No clack note in JSON mode (stdout stays clean for piped consumers).
+      expect(clackNoteMock).not.toHaveBeenCalled();
       expect(outputMock.outputJson).toHaveBeenCalledOnce();
       const payload = outputMock.outputJson.mock.calls[0][0] as {
         success: boolean;
