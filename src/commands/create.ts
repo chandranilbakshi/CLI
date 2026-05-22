@@ -749,23 +749,20 @@ export async function downloadMarketplaceTemplate(
   try {
     await fs.mkdir(tempDir, { recursive: true });
 
-    const templatesRepo =
-      process.env.INSFORGE_TEMPLATES_REPO ?? 'https://github.com/InsForge/insforge-templates.git';
-    if (!SAFE_REPO_PATTERN.test(templatesRepo)) {
-      throw new Error(`INSFORGE_TEMPLATES_REPO has unsupported characters: ${templatesRepo}`);
-    }
-    const templatesBranch = process.env.INSFORGE_TEMPLATES_BRANCH;
-    if (templatesBranch !== undefined && !SAFE_BRANCH_PATTERN.test(templatesBranch)) {
-      throw new Error(`INSFORGE_TEMPLATES_BRANCH has unsupported characters: ${templatesBranch}`);
-    }
-    const cloneArgs = ['clone', '--depth', '1'];
-    if (templatesBranch) cloneArgs.push('-b', templatesBranch);
-    cloneArgs.push('--', templatesRepo, '.');
-    await execFileAsync('git', cloneArgs, {
-      cwd: tempDir,
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 60_000,
-    });
+    // Marketplace always pulls from main of the canonical InsForge templates
+    // repo. No env-var override — contributors testing an unmerged template
+    // should validate locally (`npx @insforge/cli create --template <name>`
+    // still honours INSFORGE_TEMPLATES_BRANCH for that workflow) rather than
+    // route through the public marketplace command.
+    await execFileAsync(
+      'git',
+      ['clone', '--depth', '1', '--', 'https://github.com/InsForge/insforge-templates.git', '.'],
+      {
+        cwd: tempDir,
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 60_000,
+      },
+    );
 
     const templateDir = path.join(tempDir, slug);
     const stat = await fs.stat(templateDir).catch(() => null);
