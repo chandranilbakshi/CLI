@@ -5,6 +5,7 @@ import { requireAuth } from '../../lib/credentials.js';
 import { getProjectConfig } from '../../lib/config.js';
 import { handleError, getRootOpts, ProjectNotLinkedError } from '../../lib/errors.js';
 import { outputJson, outputSuccess } from '../../lib/output.js';
+import { trackDeploymentUsage } from './utils.js';
 
 export function registerDeploymentsCancelCommand(deploymentsCmd: Command): void {
   deploymentsCmd
@@ -31,7 +32,9 @@ export function registerDeploymentsCancelCommand(deploymentsCmd: Command): void 
         } else {
           outputSuccess(`Deployment ${id} cancelled.`);
         }
+        await trackDeploymentUsage('cancel', true);
       } catch (err) {
+        await trackDeploymentUsage('cancel', false);
         handleError(err, json);
       }
     });

@@ -5,7 +5,7 @@ import { getProjectConfig } from '../../lib/config.js';
 import { handleError, getRootOpts, ProjectNotLinkedError } from '../../lib/errors.js';
 import { outputJson, outputTable } from '../../lib/output.js';
 import type { ListDeploymentsResponse } from '../../types.js';
-import { reportCliUsage } from '../../lib/skills.js';
+import { trackDeploymentUsage } from './utils.js';
 
 export function registerDeploymentsListCommand(deploymentsCmd: Command): void {
   deploymentsCmd
@@ -33,6 +33,7 @@ export function registerDeploymentsListCommand(deploymentsCmd: Command): void {
         } else {
           if (!deployments.length) {
             console.log('No deployments found.');
+            await trackDeploymentUsage('list', true);
             return;
           }
           outputTable(
@@ -46,9 +47,9 @@ export function registerDeploymentsListCommand(deploymentsCmd: Command): void {
             ]),
           );
         }
-        await reportCliUsage('cli.deployments.list', true);
+        await trackDeploymentUsage('list', true);
       } catch (err) {
-        await reportCliUsage('cli.deployments.list', false);
+        await trackDeploymentUsage('list', false);
         handleError(err, json);
       }
     });

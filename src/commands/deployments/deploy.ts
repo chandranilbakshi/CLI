@@ -20,7 +20,7 @@ import type {
   ProjectConfig,
   StartDeploymentRequest,
 } from '../../types.js';
-import { reportCliUsage } from '../../lib/skills.js';
+import { trackDeploymentUsage } from './utils.js';
 
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 300_000;
@@ -502,9 +502,16 @@ export function registerDeploymentsDeployCommand(deploymentsCmd: Command): void 
             clack.log.info(`Check status with: npx @insforge/cli deployments status ${result.deploymentId}`);
           }
         }
-        await reportCliUsage('cli.deployments.deploy', true);
+        await trackDeploymentUsage('deploy', true, {
+          has_env: opts.env !== undefined,
+          has_meta: opts.meta !== undefined,
+          ready: result.isReady,
+        });
       } catch (err) {
-        await reportCliUsage('cli.deployments.deploy', false);
+        await trackDeploymentUsage('deploy', false, {
+          has_env: opts.env !== undefined,
+          has_meta: opts.meta !== undefined,
+        });
         handleError(err, json);
       }
     });

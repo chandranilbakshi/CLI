@@ -5,6 +5,7 @@ import { getProjectConfig } from '../../lib/config.js';
 import { handleError, getRootOpts, ProjectNotLinkedError, getDeploymentError } from '../../lib/errors.js';
 import { outputJson, outputTable } from '../../lib/output.js';
 import type { DeploymentSchema } from '../../types.js';
+import { trackDeploymentUsage } from './utils.js';
 
 export function registerDeploymentsStatusCommand(deploymentsCmd: Command): void {
   deploymentsCmd
@@ -43,7 +44,9 @@ export function registerDeploymentsStatusCommand(deploymentsCmd: Command): void 
             ],
           );
         }
+        await trackDeploymentUsage('status', true, { sync: Boolean(opts.sync) });
       } catch (err) {
+        await trackDeploymentUsage('status', false, { sync: Boolean(opts.sync) });
         handleError(err, json);
       }
     });

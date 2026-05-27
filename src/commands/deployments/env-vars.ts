@@ -4,7 +4,7 @@ import { requireAuth } from '../../lib/credentials.js';
 import { handleError, getRootOpts, ProjectNotLinkedError } from '../../lib/errors.js';
 import { getProjectConfig } from '../../lib/config.js';
 import { outputJson, outputTable, outputSuccess } from '../../lib/output.js';
-import { reportCliUsage } from '../../lib/skills.js';
+import { trackDeploymentUsage } from './utils.js';
 
 interface EnvVar {
   id: string;
@@ -35,6 +35,7 @@ export function registerDeploymentsEnvVarsCommand(deploymentsCmd: Command): void
         } else {
           if (!envVars.length) {
             console.log('No environment variables found.');
+            await trackDeploymentUsage('env.list', true);
             return;
           }
           outputTable(
@@ -47,9 +48,9 @@ export function registerDeploymentsEnvVarsCommand(deploymentsCmd: Command): void
             ]),
           );
         }
-        await reportCliUsage('cli.deployments.env.list', true);
+        await trackDeploymentUsage('env.list', true);
       } catch (err) {
-        await reportCliUsage('cli.deployments.env.list', false);
+        await trackDeploymentUsage('env.list', false);
         handleError(err, json);
       }
     });
@@ -75,9 +76,9 @@ export function registerDeploymentsEnvVarsCommand(deploymentsCmd: Command): void
         } else {
           outputSuccess(data.message);
         }
-        await reportCliUsage('cli.deployments.env.set', true);
+        await trackDeploymentUsage('env.set', true);
       } catch (err) {
-        await reportCliUsage('cli.deployments.env.set', false);
+        await trackDeploymentUsage('env.set', false);
         handleError(err, json);
       }
     });
@@ -102,9 +103,9 @@ export function registerDeploymentsEnvVarsCommand(deploymentsCmd: Command): void
         } else {
           outputSuccess(data.message);
         }
-        await reportCliUsage('cli.deployments.env.delete', true);
+        await trackDeploymentUsage('env.delete', true);
       } catch (err) {
-        await reportCliUsage('cli.deployments.env.delete', false);
+        await trackDeploymentUsage('env.delete', false);
         handleError(err, json);
       }
     });
