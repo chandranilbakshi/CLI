@@ -86,8 +86,6 @@ async function runSetup(opts: RunSetupOpts): Promise<SetupResult> {
     throw new AuthError('Not logged in. Run `insforge login` first.');
   }
 
-  // Step 2 of the "dashboard connect → CLI posthog setup" funnel; pairs
-  // with backend `posthog_connect_started` joined on project_id.
   trackPosthog('setup', proj);
 
   if (!opts.json) {
