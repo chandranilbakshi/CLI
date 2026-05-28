@@ -61,6 +61,22 @@ export function trackPayments(
   });
 }
 
+export function trackDeployments(
+  subcommand: string,
+  config: ProjectConfig,
+  properties?: Record<string, unknown>,
+): void {
+  captureEvent(config.project_id, 'cli_deployments_invoked', {
+    subcommand,
+    project_id: config.project_id,
+    project_name: config.project_name,
+    org_id: config.org_id,
+    region: config.region,
+    oss_mode: config.project_id === FAKE_PROJECT_ID,
+    ...properties,
+  });
+}
+
 // Step 2 of the "dashboard connect → CLI posthog setup" funnel; pair with
 // backend `posthog_connect_started` joined on project_id.
 export function trackPosthog(
