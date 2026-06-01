@@ -16,8 +16,7 @@ import {
   authPasswordWireKey,
 } from '../../lib/config-capabilities.js';
 import { resolveEnvRef } from '../../lib/config-secrets.js';
-import { liveFromConfigState } from '../../lib/config-metadata.js';
-import { loadConfigState } from '../../lib/config-state.js';
+import { liveFromConfigState, loadConfigState } from '../../lib/config-metadata.js';
 import { reportCliUsage } from '../../lib/skills.js';
 import { trackConfig, shutdownAnalytics } from '../../lib/analytics.js';
 import { getProjectConfig } from '../../lib/config.js';
