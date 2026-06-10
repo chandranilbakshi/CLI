@@ -1,6 +1,6 @@
 {
   "name": "@insforge/cli",
-  "version": "0.1.88-razorpay.1",
+  "version": "0.1.89",
   "description": "InsForge CLI - Command line tool for InsForge platform",
   "type": "module",
   "bin": {
