@@ -75,8 +75,11 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
  * extension is missing or unrecognized.
  */
 export function mimeTypeFromName(name: string): string | undefined {
-  const lastDot = name.lastIndexOf('.');
-  if (lastDot < 0 || lastDot === name.length - 1) return undefined;
-  const ext = name.slice(lastDot + 1).toLowerCase();
+  // Strip any directory portion first so a dot in a parent directory
+  // (e.g. "/home/user.name/datafile") can't be mistaken for an extension.
+  const base = name.slice(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1);
+  const lastDot = base.lastIndexOf('.');
+  if (lastDot < 0 || lastDot === base.length - 1) return undefined;
+  const ext = base.slice(lastDot + 1).toLowerCase();
   return EXTENSION_MIME_TYPES[ext];
 }

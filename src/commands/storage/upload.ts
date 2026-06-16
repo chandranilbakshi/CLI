@@ -7,6 +7,15 @@ import { handleError, getRootOpts, CLIError, ProjectNotLinkedError } from '../..
 import { outputJson, outputSuccess } from '../../lib/output.js';
 import { mimeTypeFromName } from '../../lib/mime.js';
 
+/**
+ * Resolve the content type for an upload: an explicit (non-empty) `--content-type`
+ * wins, otherwise infer from the file extension, otherwise fall back to the
+ * storage default. Exported for testing.
+ */
+export function resolveUploadContentType(filePath: string, explicit?: string): string {
+  return explicit?.trim() || mimeTypeFromName(filePath) || 'application/octet-stream';
+}
+
 export function registerStorageUploadCommand(storageCmd: Command): void {
   storageCmd
     .command('upload <file>')
@@ -33,8 +42,7 @@ export function registerStorageUploadCommand(storageCmd: Command): void {
         // Resolve the content type: explicit flag wins, then infer from the
         // file's extension. Without this a typeless Blob is stored as
         // application/octet-stream regardless of the actual file type.
-        const contentType =
-          opts.contentType ?? mimeTypeFromName(file) ?? 'application/octet-stream';
+        const contentType = resolveUploadContentType(file, opts.contentType);
 
         // Build multipart form data. The Blob's type becomes the multipart
         // part's Content-Type, which the backend stores as the object's MIME type.

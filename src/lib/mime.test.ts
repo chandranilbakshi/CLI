@@ -16,6 +16,12 @@ describe('mimeTypeFromName', () => {
     expect(mimeTypeFromName('archive.tar.gz')).toBe('application/gzip');
   });
 
+  it('ignores dots in parent directories (basename only)', () => {
+    expect(mimeTypeFromName('/home/user.name/photo.png')).toBe('image/png');
+    expect(mimeTypeFromName('/home/user.name/datafile')).toBeUndefined();
+    expect(mimeTypeFromName('C:\\Users\\a.b\\report.pdf')).toBe('application/pdf');
+  });
+
   it('returns undefined for unknown or missing extensions', () => {
     expect(mimeTypeFromName('file.unknownext')).toBeUndefined();
     expect(mimeTypeFromName('noext')).toBeUndefined();
