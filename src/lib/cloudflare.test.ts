@@ -19,7 +19,7 @@ describe('Cloudflare OAuth helpers', () => {
     expect(url.searchParams.get('code_challenge')).toBe('challenge-abc');
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(url.searchParams.get('scope')).toBe(
-      'registrar-domains.admin registrar-domains.read dns.write dns.read zone.write zone.read',
+      'registrar-domains.admin registrar-domains.read dns.write dns.read zone.write zone.read account-settings.read',
     );
   });
 

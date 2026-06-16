@@ -17,6 +17,7 @@ const CLOUDFLARE_OAUTH_SCOPES = [
   'dns.read',
   'zone.write',
   'zone.read',
+  'account-settings.read',
 ];
 const GLOBAL_DIR = join(homedir(), '.insforge');
 const CLOUDFLARE_FILE = join(GLOBAL_DIR, 'cloudflare.json');
