@@ -438,8 +438,9 @@ export async function inviteMember(
     method: 'POST',
     body: JSON.stringify(body),
   }, apiUrl);
-  const data = await res.json() as { invitation: { id: string; email: string; role: MemberRole; expires_at: string } };
-  return data.invitation;
+  type Invite = { id: string; email: string; role: MemberRole; expires_at: string };
+  const data = await res.json() as { invitation?: Invite };
+  return data.invitation ?? (data as unknown as Invite);
 }
 
 export async function removeMember(orgId: string, memberId: string, apiUrl?: string): Promise<void> {

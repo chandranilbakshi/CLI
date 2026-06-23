@@ -16,17 +16,24 @@ import { outputJson, outputSuccess, outputInfo } from '../../lib/output.js';
 import { captureEvent, shutdownAnalytics } from '../../lib/analytics.js';
 
 /**
- * Resolve which project a lifecycle command targets. Honors --project / the
- * INSFORGE_PROJECT_ID env var / the linked project (in that order). For
- * destructive cross-project ops the caller can require an explicit id.
+ * Resolve which project a lifecycle command targets. An explicit `--project`
+ * always wins over the INSFORGE_PROJECT_ID env var and the linked project.
+ * When `requireExplicit` is set (destructive cross-project ops like delete),
+ * only `--project` is accepted — env/linked fallbacks are refused so a stray
+ * ambient value can't silently point a destructive op at the wrong project.
  */
 function resolveProjectId(opts: { project?: string }, requireExplicit = false): string {
-  if (requireExplicit && !opts.project && !process.env.INSFORGE_PROJECT_ID) {
-    throw new CLIError(
-      'Refusing to act on the linked project implicitly. Pass --project <id> to target a project explicitly.',
-    );
+  if (requireExplicit) {
+    if (!opts.project) {
+      throw new CLIError(
+        'Refusing to act on a project implicitly. Pass --project <id> to target a project explicitly.',
+      );
+    }
+    return opts.project;
   }
-  const id = getProjectId(opts.project);
+  // `opts.project ?? getProjectId()` keeps the explicit flag ahead of the env
+  // var (getProjectId resolves env → linked when called with no override).
+  const id = opts.project ?? getProjectId();
   if (!id) {
     throw new CLIError('No project specified. Pass --project <id> or run `insforge link` first.');
   }

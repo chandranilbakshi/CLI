@@ -24,7 +24,8 @@ function resolveProjectId(opts: { project?: string }): string {
 }
 
 function formatBytes(n: number | null): string {
-  if (!n) return '-';
+  if (n === null) return '-';
+  if (n === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
   return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
@@ -126,7 +127,11 @@ export function registerBackupsCommands(backupsCmd: Command): void {
         if (json) {
           outputJson(result);
         } else {
-          outputSuccess(`Backup ${backupId} renamed to "${result.name ?? ''}".`);
+          outputSuccess(
+            result.name
+              ? `Backup ${backupId} renamed to "${result.name}".`
+              : `Backup ${backupId} name cleared.`,
+          );
         }
       } catch (err) {
         handleError(err, json);
