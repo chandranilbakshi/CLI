@@ -194,7 +194,11 @@ export function registerProjectManageCommands(projectsCmd: Command): void {
         const project = await getProject(projectId, apiUrl).catch(() => null);
         const current = project?.service_version ?? null;
 
-        if (current && current === latest) {
+        // service_version is stored without the `v` prefix (e.g. "2.2.2") while
+        // the latest-version endpoint returns it with one ("v2.2.2"); normalize
+        // both so an already-current project is detected as a no-op.
+        const norm = (v: string): string => v.replace(/^v/i, '');
+        if (current && norm(current) === norm(latest)) {
           if (json) {
             outputJson({ updated: false, current_version: current, latest_version: latest });
           } else {

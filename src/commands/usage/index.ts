@@ -16,7 +16,10 @@ function formatBytes(n: number): string {
 const BYTE_METRICS = new Set(['database_bytes', 'storage_bytes', 'egress_bytes']);
 
 function formatMetric(key: string, value: number): string {
-  return BYTE_METRICS.has(key) ? formatBytes(value) : String(value);
+  if (BYTE_METRICS.has(key)) return formatBytes(value);
+  // Counts stay as integers; fractional metrics (e.g. ai_credits) round to 2dp
+  // so we don't surface float noise like 69.82999999999998.
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 export function registerUsageCommand(program: Command): void {
