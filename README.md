@@ -164,7 +164,7 @@ Fetch backend container logs.
 npx @insforge/cli logs <source> [options]
 ```
 
-**Sources:** `insforge.logs`, `PostgREST.logs`, `postgres.logs`, `function.logs`
+**Sources:** `insforge.logs`, `postgREST.logs`, `postgres.logs`, `function.logs`
 
 **Options:**
 
