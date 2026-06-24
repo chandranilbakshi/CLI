@@ -10,6 +10,9 @@ async function fetchWithTimeout(
   init: RequestInit,
   callerSignal?: AbortSignal,
 ): Promise<Response> {
+  if (callerSignal?.aborted) {
+    throw new CLIError('Connection wait cancelled.');
+  }
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
   const onCallerAbort = (): void => ac.abort();
@@ -160,7 +163,7 @@ export async function pollApifyConnection(
     const elapsed = Date.now() - start;
     if (elapsed >= opts.timeoutMs) {
       throw new CLIError(
-        'Timed out waiting for Apify connection. Re-run `insforge apify connect` after authorizing.',
+        'Timed out waiting for Apify connection. Re-run `insforge datasource apify connect` after authorizing.',
       );
     }
     opts.onTick?.(elapsed);
@@ -174,7 +177,7 @@ export async function pollApifyConnection(
         throw new CLIError(`Forbidden: ${result.message}`, 5);
       case 'error':
         consecutiveErrors += 1;
-        if (consecutiveErrors > opts.maxTransientRetries) {
+        if (consecutiveErrors >= opts.maxTransientRetries) {
           throw new CLIError(
             `Connection check failed after ${opts.maxTransientRetries} retries: ${result.message}`,
           );

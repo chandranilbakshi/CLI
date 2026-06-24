@@ -51,6 +51,9 @@ export function registerApifyConnectCommand(program: Command): void {
           outputJson({ success: true, ...result });
         }
       } catch (err) {
+        // handleError() calls process.exit(), which skips the finally block — so
+        // flush queued analytics here before the process dies.
+        await shutdownAnalytics();
         handleError(err, json);
       } finally {
         await shutdownAnalytics();
@@ -140,6 +143,12 @@ async function ensureConnection(
     // Sanity-check that cloud-backend has the connection row, surface a clear
     // error if cli-start says yes but /connection says no (data drift).
     const fetchResult = await fetchApifyConnection(projectId, token, opts.apiUrl);
+    if (fetchResult.kind === 'forbidden') {
+      throw new CLIError(`Forbidden: ${fetchResult.message}`, 5);
+    }
+    if (fetchResult.kind === 'error') {
+      throw new CLIError(`Could not verify the Apify connection: ${fetchResult.message}`);
+    }
     if (fetchResult.kind !== 'connected') {
       throw new CLIError(
         'cli-start reported connected, but /connection returned not-connected. Try again, or check the dashboard.',
