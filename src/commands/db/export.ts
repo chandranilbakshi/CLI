@@ -4,6 +4,7 @@ import { ossFetch } from '../../lib/api/oss.js';
 import { requireAuth } from '../../lib/credentials.js';
 import { handleError, getRootOpts } from '../../lib/errors.js';
 import { outputJson, outputSuccess } from '../../lib/output.js';
+import { trackCommandUsage } from '../../lib/command-telemetry.js';
 
 export function registerDbExportCommand(dbCmd: Command): void {
   dbCmd
@@ -42,6 +43,8 @@ export function registerDbExportCommand(dbCmd: Command): void {
 
         const raw = await res.text();
 
+        await trackCommandUsage('db', 'export', true);
+
         // API may return JSON wrapper { format, content, tables } or raw SQL/JSON text
         let content: string;
         let meta: { format?: string; tables?: string[] } | null = null;
@@ -71,6 +74,7 @@ export function registerDbExportCommand(dbCmd: Command): void {
           console.log(content);
         }
       } catch (err) {
+        await trackCommandUsage('db', 'export', false, {}, err);
         handleError(err, json);
       }
     });

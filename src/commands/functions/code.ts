@@ -3,6 +3,7 @@ import { ossFetch } from '../../lib/api/oss.js';
 import { requireAuth } from '../../lib/credentials.js';
 import { handleError, getRootOpts } from '../../lib/errors.js';
 import { outputJson } from '../../lib/output.js';
+import { trackCommandUsage } from '../../lib/command-telemetry.js';
 
 interface FunctionDetails {
   id: string;
@@ -28,6 +29,8 @@ export function registerFunctionsCodeCommand(functionsCmd: Command): void {
         const res = await ossFetch(`/api/functions/${encodeURIComponent(slug)}`);
         const fn = await res.json() as FunctionDetails;
 
+        await trackCommandUsage('functions', 'code', true);
+
         if (json) {
           outputJson(fn);
         } else {
@@ -39,6 +42,7 @@ export function registerFunctionsCodeCommand(functionsCmd: Command): void {
           console.log(fn.code);
         }
       } catch (err) {
+        await trackCommandUsage('functions', 'code', false, {}, err);
         handleError(err, json);
       }
     });
