@@ -33,6 +33,9 @@ export function registerDeploymentsSlugCommand(deploymentsCmd: Command): void {
     .option('--remove', 'Remove the custom slug')
     .action(async (slug: string | undefined, opts, cmd) => {
       const { json } = getRootOpts(cmd);
+      const action = opts.remove ? 'remove' : slug ? 'set' : 'show';
+      let success = false;
+      let commandError: unknown;
       try {
         await requireAuth();
         if (!getProjectConfig()) throw new ProjectNotLinkedError();
@@ -40,19 +43,19 @@ export function registerDeploymentsSlugCommand(deploymentsCmd: Command): void {
         const slugValue = opts.remove ? null : (slug ?? null);
         const metadataRes = await ossFetch('/api/metadata');
         const metadata = (await metadataRes.json()) as MetadataResponse;
+        const deployments = getSupportedDeploymentsSlice(metadata);
 
         if (!opts.remove && !slug) {
-          const currentSlug = metadata.deployments?.customSlug ?? null;
+          const currentSlug = deployments.customSlug ?? null;
           if (json) {
             outputJson({ slug: currentSlug });
           } else {
             console.log(`Current slug: ${currentSlug ?? '(none)'}`);
           }
-          await trackDeploymentUsage('slug', true, { action: 'show' });
+          success = true;
           return;
         }
 
-        getSupportedDeploymentsSlice(metadata);
         const res = await ossFetch('/api/deployments/slug', {
           method: 'PUT',
           body: JSON.stringify({ slug: slugValue }),
@@ -69,12 +72,16 @@ export function registerDeploymentsSlugCommand(deploymentsCmd: Command): void {
             outputSuccess('Custom slug removed.');
           }
         }
-        await trackDeploymentUsage('slug', true, { action: opts.remove ? 'remove' : 'set' });
+        success = true;
       } catch (err) {
-        await trackDeploymentUsage('slug', false, {
-          action: opts.remove ? 'remove' : slug ? 'set' : 'show',
-        });
-        handleError(err, json);
+        commandError = err;
+      } finally {
+        try {
+          await trackDeploymentUsage('slug', success, { action });
+        } catch {
+          // Telemetry should never affect command behavior.
+        }
       }
+      if (commandError) handleError(commandError, json);
     });
 }
