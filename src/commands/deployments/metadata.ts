@@ -13,6 +13,8 @@ export function registerDeploymentsMetadataCommand(deploymentsCmd: Command): voi
     .description('Get current deployment metadata and domain URLs')
     .action(async (_opts, cmd) => {
       const { json } = getRootOpts(cmd);
+      let success = false;
+      let commandError: unknown;
       try {
         await requireAuth();
         if (!getProjectConfig()) throw new ProjectNotLinkedError();
@@ -32,10 +34,16 @@ export function registerDeploymentsMetadataCommand(deploymentsCmd: Command): voi
             ],
           );
         }
-        await trackDeploymentUsage('metadata', true);
+        success = true;
       } catch (err) {
-        await trackDeploymentUsage('metadata', false);
-        handleError(err, json);
+        commandError = err;
+      } finally {
+        try {
+          await trackDeploymentUsage('metadata', success);
+        } catch {
+          // Telemetry should never affect command behavior.
+        }
       }
+      if (commandError) handleError(commandError, json);
     });
 }
