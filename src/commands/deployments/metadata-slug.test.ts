@@ -146,6 +146,18 @@ describe('deployments slug', () => {
     expect(JSON.parse(logs.join('\n'))).toEqual({ slug: 'my-app' });
   });
 
+  it('does not report an empty slug when backend lacks deployments metadata', async () => {
+    nextMetadataResponse = { auth: { allowedRedirectUrls: [] } };
+
+    await expect(
+      runWithCapturedLog(makeProgram(), ['--json', 'deployments', 'slug']),
+    ).rejects.toMatchObject({
+      code: 'DEPLOYMENT_SLUG_UNSUPPORTED',
+    });
+
+    expect(ossFetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/metadata']);
+  });
+
   it('setting a slug calls /api/metadata, then PUTs slug body', async () => {
     nextMetadataResponse = { deployments: { customSlug: null } };
 
