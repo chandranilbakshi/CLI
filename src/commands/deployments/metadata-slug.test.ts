@@ -65,6 +65,7 @@ vi.mock('../../lib/config.js', () => ({
 
 vi.mock('./utils.js', () => ({
   trackDeploymentUsage: vi.fn(async () => {}),
+  trackDeploymentUsageBeforeExit: vi.fn(async () => {}),
 }));
 
 vi.mock('../../lib/errors.js', async (orig) => {

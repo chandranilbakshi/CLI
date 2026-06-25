@@ -6,6 +6,8 @@ export type DeploymentCommandTelemetry = Record<
   string | number | boolean | undefined
 >;
 
+const ERROR_TELEMETRY_FLUSH_TIMEOUT_MS = 500;
+
 export async function trackDeploymentUsage(
   subcommand: string,
   success: boolean,
@@ -23,5 +25,25 @@ export async function trackDeploymentUsage(
     // Telemetry should never affect command behavior.
   } finally {
     await shutdownAnalytics();
+  }
+}
+
+export async function trackDeploymentUsageBeforeExit(
+  subcommand: string,
+  success: boolean,
+  properties: DeploymentCommandTelemetry = {},
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      trackDeploymentUsage(subcommand, success, properties),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ERROR_TELEMETRY_FLUSH_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    // Telemetry should never affect command behavior.
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

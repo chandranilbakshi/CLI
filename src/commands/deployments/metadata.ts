@@ -5,7 +5,7 @@ import { getProjectConfig } from '../../lib/config.js';
 import { handleError, getRootOpts, ProjectNotLinkedError } from '../../lib/errors.js';
 import { outputJson, outputTable } from '../../lib/output.js';
 import type { DeploymentMetadataResponse } from '../../types.js';
-import { trackDeploymentUsage } from './utils.js';
+import { trackDeploymentUsage, trackDeploymentUsageBeforeExit } from './utils.js';
 
 export function registerDeploymentsMetadataCommand(deploymentsCmd: Command): void {
   deploymentsCmd
@@ -35,9 +35,7 @@ export function registerDeploymentsMetadataCommand(deploymentsCmd: Command): voi
         }
         success = true;
       } catch (err) {
-        void trackDeploymentUsage('metadata', false).catch(() => {
-          // Telemetry should never affect command behavior.
-        });
+        await trackDeploymentUsageBeforeExit('metadata', false);
         handleError(err, json);
       }
       if (success) {

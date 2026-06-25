@@ -4,7 +4,7 @@ import { requireAuth } from '../../lib/credentials.js';
 import { getProjectConfig } from '../../lib/config.js';
 import { CLIError, handleError, getRootOpts, ProjectNotLinkedError } from '../../lib/errors.js';
 import { outputJson, outputSuccess } from '../../lib/output.js';
-import { trackDeploymentUsage } from './utils.js';
+import { trackDeploymentUsage, trackDeploymentUsageBeforeExit } from './utils.js';
 
 interface DeploymentMetadataSlice {
   customSlug?: string | null;
@@ -78,9 +78,7 @@ export function registerDeploymentsSlugCommand(deploymentsCmd: Command): void {
         }
         success = true;
       } catch (err) {
-        void trackDeploymentUsage('slug', false, { action }).catch(() => {
-          // Telemetry should never affect command behavior.
-        });
+        await trackDeploymentUsageBeforeExit('slug', false, { action });
         handleError(err, json);
       }
       if (success) {
