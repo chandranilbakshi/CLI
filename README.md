@@ -543,6 +543,25 @@ npx @insforge/cli deployments env set API_URL https://api.example.com  # create 
 npx @insforge/cli deployments env delete <id>                # delete a variable by ID
 ```
 
+#### `npx @insforge/cli deployments metadata`
+
+Show current deployment metadata and domain URLs.
+
+```bash
+npx @insforge/cli deployments metadata
+npx @insforge/cli deployments metadata --json
+```
+
+#### `npx @insforge/cli deployments slug [slug]`
+
+Show, set, or remove the custom deployment slug.
+
+```bash
+npx @insforge/cli deployments slug
+npx @insforge/cli deployments slug my-app
+npx @insforge/cli deployments slug --remove
+```
+
 ---
 
 ### Domains — `npx @insforge/cli domains`
