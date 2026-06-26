@@ -66,6 +66,18 @@ async function hasApifyCli(): Promise<boolean> {
 async function isApifyLoggedIn(token: string): Promise<boolean> {
   try {
     const raw = await readFile(join(homedir(), '.apify', 'auth.json'), 'utf8');
+    // Apify CLI writes `{ "token": "<token>", ... }`. Prefer an exact field
+    // compare over a substring scan of the raw text (more robust against false
+    // positives and format drift); fall back to substring only if the shape is
+    // unexpected and we cannot parse it.
+    try {
+      const parsed = JSON.parse(raw) as { token?: unknown };
+      if (typeof parsed.token === 'string') {
+        return parsed.token === token;
+      }
+    } catch {
+      // not JSON / unexpected shape — fall through to the substring check
+    }
     return raw.includes(token);
   } catch {
     return false;

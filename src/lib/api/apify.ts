@@ -39,6 +39,7 @@ export type ConnectionFetch =
   | { kind: 'connected'; connection: ApifyConnectionResponse }
   | { kind: 'not-connected' }
   | { kind: 'forbidden'; message: string }
+  | { kind: 'unauthorized'; message: string }
   | { kind: 'error'; message: string; status?: number };
 
 /**
@@ -88,6 +89,14 @@ export async function fetchApifyConnection(
     return {
       kind: 'forbidden',
       message: body.error ?? 'Forbidden — you may not have access to this project.',
+    };
+  }
+
+  if (res.status === 401) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    return {
+      kind: 'unauthorized',
+      message: body.error ?? 'Not authenticated.',
     };
   }
 
@@ -142,9 +151,9 @@ export interface PollOptions {
 
 /**
  * Poll the connection endpoint until it returns a connected response, the
- * deadline elapses, or the user aborts. 403 short-circuits (it's not going
- * to flip to allowed by retrying); 4xx and transient 5xx are tolerated up to
- * `maxTransientRetries` consecutive failures.
+ * deadline elapses, or the user aborts. 401 and 403 short-circuit (retrying
+ * won't flip an auth/permission failure); other transient errors (network,
+ * 5xx) are tolerated up to `maxTransientRetries` consecutive failures.
  */
 export async function pollApifyConnection(
   projectId: string,
@@ -175,6 +184,11 @@ export async function pollApifyConnection(
         return result.connection;
       case 'forbidden':
         throw new CLIError(`Forbidden: ${result.message}`, 5);
+      case 'unauthorized':
+        throw new CLIError(
+          `Not authenticated (HTTP 401): ${result.message}. Re-run \`insforge login\`.`,
+          2,
+        );
       case 'error':
         consecutiveErrors += 1;
         if (consecutiveErrors >= opts.maxTransientRetries) {

@@ -52,8 +52,11 @@ export function registerApifyConnectCommand(program: Command): void {
           outputJson({ success: true, ...result });
         }
       } catch (err) {
-        // handleError() calls process.exit(), which skips the finally block — so
-        // flush queued analytics here before the process dies.
+        // handleError() calls process.exit(), which skips the finally block, so
+        // this catch must flush analytics before handing off. The finally below
+        // covers the normal (success / json) return path. Both run at most once:
+        // on error the finally is skipped (process exits in handleError); on
+        // success the catch is skipped. Not a double flush.
         await shutdownAnalytics();
         handleError(err, json);
       } finally {
@@ -159,6 +162,9 @@ async function ensureConnection(
     const fetchResult = await fetchApifyConnection(projectId, token, opts.apiUrl);
     if (fetchResult.kind === 'forbidden') {
       throw new CLIError(`Forbidden: ${fetchResult.message}`, 5);
+    }
+    if (fetchResult.kind === 'unauthorized') {
+      throw new AuthError(`Not authenticated: ${fetchResult.message}. Re-run \`insforge login\`.`);
     }
     if (fetchResult.kind === 'error') {
       throw new CLIError(`Could not verify the Apify connection: ${fetchResult.message}`);
