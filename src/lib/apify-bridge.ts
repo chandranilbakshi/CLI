@@ -22,8 +22,10 @@ const RUN_TIMEOUT_MS = 5 * 60 * 1000;
  * exit code 0, rejects otherwise (including timeout).
  *
  * `shell: true` on Windows so `.cmd` shims (`npm`, `apify`) resolve — bare
- * `spawn('npm', ...)` fails with ENOENT there. Args are alphanumeric tokens, so
- * shell quoting is not a concern.
+ * `spawn('npm', ...)` fails with ENOENT there (modern Node also refuses to run
+ * `.cmd` without a shell). Callers MUST pass only shell-safe args on this path:
+ * the Apify token is charset-validated in `runApifyAuthBridge` before it reaches
+ * here, so no shell metacharacter can be injected.
  */
 function run(cmd: string, args: string[], json: boolean): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -89,6 +91,17 @@ async function isApifyLoggedIn(token: string): Promise<boolean> {
  */
 export async function runApifyAuthBridge(json: boolean): Promise<{ skillsInstalled: boolean }> {
   const token = await fetchApifyAccessToken();
+
+  // `apify login --token <token>` runs through a shell on Windows (required for
+  // the `.cmd` shims). Apify API tokens are `apify_api_<alphanumeric>`, so any
+  // character outside this safe set means a corrupt/unexpected token — reject it
+  // rather than let a shell metacharacter reach the command line (injection /
+  // broken arg parsing). The trusted source (InsForge) should never emit one.
+  if (!/^[A-Za-z0-9_-]+$/.test(token)) {
+    throw new Error(
+      'Unexpected Apify token format; refusing to pass it to the shell. Re-run `insforge datasource apify connect`.',
+    );
+  }
 
   if (!(await hasApifyCli())) {
     if (!json) clack.log.info('Apify CLI not found — installing apify-cli globally...');
