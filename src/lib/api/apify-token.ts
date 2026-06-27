@@ -20,7 +20,7 @@ export async function fetchApifyAccessToken(): Promise<string> {
     // Only remap the backend's explicit "no connection" signal (resource-level
     // 404 with `error: 'not_connected'`) to the connect remediation. A bare
     // route-level 404 means the backend has no /webscraper route at all
-    // (older/self-hosted, data source unsupported) — ossFetch already rewrites
+    // (older/self-hosted, web scraper unsupported) — ossFetch already rewrites
     // that to a "not available on this backend" message, so let it propagate
     // rather than wrongly telling the user to run `connect`.
     if (err instanceof CLIError && err.statusCode === 404 && err.code === 'not_connected') {
