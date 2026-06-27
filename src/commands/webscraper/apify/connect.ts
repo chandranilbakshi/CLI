@@ -109,13 +109,17 @@ async function runConnect(opts: RunConnectOpts): Promise<ConnectResult> {
     const { skillsInstalled } = await runApifyAuthBridge(opts.json);
     if (!opts.json && !skillsInstalled) {
       clack.log.warn(
-        'Agent skills did not install. Re-run `insforge datasource apify login`, or install manually with `npx skills add apify/agent-skills`.',
+        'Agent skills did not install. Re-run `insforge webscraper apify login`, or install manually with `npx skills add apify/agent-skills`.',
       );
     }
-  } catch {
+  } catch (err) {
     if (!opts.json) {
+      // The bridge's malformed-token error carries its own remediation
+      // (re-run `connect`); preserve it instead of the generic login hint.
       clack.log.warn(
-        'Connected, but auto-login/skills install failed. Run `insforge datasource apify login` to finish.',
+        err instanceof Error && err.message.includes('`insforge webscraper apify connect`')
+          ? err.message
+          : 'Connected, but auto-login/skills install failed. Run `insforge webscraper apify login` to finish.',
       );
     }
   }
