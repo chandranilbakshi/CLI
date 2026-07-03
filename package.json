@@ -31,7 +31,8 @@
   },
   "files": [
     "dist/index.js",
-    "dist/index.d.ts"
+    "dist/index.d.ts",
+    "dist/assets/forger.json"
   ],
   "dependencies": {
     "@clack/prompts": "^0.9.1",
