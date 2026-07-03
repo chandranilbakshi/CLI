@@ -90,7 +90,6 @@ import { registerAiCommands } from './commands/ai/index.js';
 import { registerDomainsCommands } from './commands/domains/index.js';
 import { registerMemoryCommands } from './commands/memory/index.js';
 import { guardHook } from './lib/guard/index.js';
-import { playForgerAnimation } from './lib/forger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8')) as { version: string };
@@ -274,9 +273,12 @@ registerSchedulesLogsCommand(schedulesCmd);
 // Config commands
 registerConfigCommand(program);
 
-if (process.argv.length === 3 && process.argv[2] === '--forger' && process.stdout.isTTY) {
-  await playForgerAnimation();
-  await showInteractiveMenu();
+if (process.argv.length === 3 && process.argv[2] === '--forger') {
+  if (process.stdout.isTTY) {
+    const { playForgerAnimation } = await import('./lib/forger.js');
+    await playForgerAnimation();
+    await showInteractiveMenu();
+  }
 } else if (process.argv.length <= 2 && process.stdout.isTTY) {
   await showInteractiveMenu();
 } else {
