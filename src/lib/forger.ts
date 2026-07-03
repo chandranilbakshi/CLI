@@ -124,8 +124,8 @@ export async function playForgerAnimation(): Promise<void> {
       await sleep(Math.max(frame.delayMs, 0));
     }
   } finally {
+    cleanupTerminal();
     process.off('SIGINT', onSigint);
     process.off('SIGTERM', onSigterm);
-    cleanupTerminal();
   }
 }
