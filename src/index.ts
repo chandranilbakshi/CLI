@@ -286,30 +286,22 @@ registerSchedulesLogsCommand(schedulesCmd);
 // Config commands
 registerConfigCommand(program);
 
-const cliArgs = process.argv.slice(2);
-const parsedOptions = program.parseOptions(cliArgs);
-const hasSubcommand = parsedOptions.operands.length > 0;
-const topLevelOpts = program.opts() as { forger?: boolean; json?: boolean };
-const isInteractiveTopLevelInvocation = !hasSubcommand && process.stdout.isTTY && (cliArgs.length === 0 || topLevelOpts.forger);
+program.action(async (options: { forger?: boolean; json?: boolean }) => {
+  const isInteractive = process.stdout.isTTY;
+  if (isInteractive) {
+    await showInteractiveMenu();
+  } else if (options.forger) {
+    const message = 'The --forger animation requires an interactive terminal. Run insforge in a TTY or omit --forger.';
+    if (options.json) {
+      outputJson({ error: message });
+    } else {
+      console.error(message);
+    }
+    process.exitCode = 1;
+  }
+});
 
-if (isInteractiveTopLevelInvocation) {
-  if (topLevelOpts.forger) {
-    didPlayForgerAnimation = true;
-    const { playForgerAnimation } = await import('./lib/forger.js');
-    await playForgerAnimation();
-  }
-  await showInteractiveMenu();
-} else if (!hasSubcommand && topLevelOpts.forger) {
-  const message = 'The --forger animation requires an interactive terminal. Run insforge in a TTY or omit --forger.';
-  if (topLevelOpts.json) {
-    outputJson({ error: message });
-  } else {
-    console.error(message);
-  }
-  process.exitCode = 1;
-} else {
-  await program.parseAsync();
-}
+await program.parseAsync();
 
 async function showInteractiveMenu(): Promise<void> {
   let isLoggedIn = false;
