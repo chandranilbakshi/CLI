@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import * as clack from '@clack/prompts';
 import * as prompts from './lib/prompts.js';
 import { getCredentials, getProjectConfig } from './lib/config.js';
+import { outputJson } from './lib/output.js';
 import { registerLoginCommand } from './commands/login.js';
 import { registerLogoutCommand } from './commands/logout.js';
 import { registerWhoamiCommand } from './commands/whoami.js';
@@ -285,19 +286,27 @@ registerSchedulesLogsCommand(schedulesCmd);
 // Config commands
 registerConfigCommand(program);
 
-program.parseOptions(process.argv);
 const cliArgs = process.argv.slice(2);
-const isForgerOnlyInvocation = cliArgs.length > 0 && cliArgs.every((arg) => arg === '--forger');
-const isTopLevelInvocation = cliArgs.length === 0 || isForgerOnlyInvocation;
-const topLevelOpts = program.opts() as { forger?: boolean };
+const parsedOptions = program.parseOptions(cliArgs);
+const hasSubcommand = parsedOptions.operands.length > 0;
+const topLevelOpts = program.opts() as { forger?: boolean; json?: boolean };
+const isInteractiveTopLevelInvocation = !hasSubcommand && process.stdout.isTTY && (cliArgs.length === 0 || topLevelOpts.forger);
 
-if (isTopLevelInvocation && process.stdout.isTTY) {
+if (isInteractiveTopLevelInvocation) {
   if (topLevelOpts.forger) {
     didPlayForgerAnimation = true;
     const { playForgerAnimation } = await import('./lib/forger.js');
     await playForgerAnimation();
   }
   await showInteractiveMenu();
+} else if (!hasSubcommand && topLevelOpts.forger) {
+  const message = 'The --forger animation requires an interactive terminal. Run insforge in a TTY or omit --forger.';
+  if (topLevelOpts.json) {
+    outputJson({ error: message });
+  } else {
+    console.error(message);
+  }
+  process.exitCode = 1;
 } else {
   await program.parseAsync();
 }

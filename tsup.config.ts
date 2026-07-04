@@ -25,7 +25,9 @@ export default defineConfig({
     {
       name: 'copy-forger-asset',
       setup(build) {
-        build.onEnd(() => {
+        build.onEnd((result) => {
+          if (result.errors.length > 0) return;
+
           const assetsDir = join(outDir, 'assets');
           mkdirSync(assetsDir, { recursive: true });
           copyFileSync('src/assets/forger.json', join(assetsDir, 'forger.json'));
