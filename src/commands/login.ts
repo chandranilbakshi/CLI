@@ -186,8 +186,11 @@ async function fetchProfileWithApiKey(apiKey: string, apiUrl?: string): Promise<
     profile && typeof profile === 'object' && 'user' in profile
       ? (profile as { user?: User }).user
       : ((profile as User | null) ?? undefined);
-  if (!user) {
-    throw new CLIError('Profile response was empty');
+  // Require a real identity, not just a truthy value: the flat-shape fallback
+  // can yield `{}` from an empty body, which would persist a malformed user
+  // and print "Authenticated as undefined".
+  if (!user?.id) {
+    throw new CLIError('Profile response was empty or malformed');
   }
   return user;
 }

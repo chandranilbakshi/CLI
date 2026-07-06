@@ -81,8 +81,12 @@ export async function platformFetch(
     console.error(`[DEBUG] ${fetchOptions.method ?? 'GET'} ${fullUrl}`);
     // Redact the bearer credential. For direct-key sessions it is now the
     // long-lived, non-rotating uak_ (not a short-lived JWT), so never write it
-    // in full — even behind the debug flag.
-    const safeHeaders = { ...headers, Authorization: redactBearer(headers.Authorization) };
+    // in full — even behind the debug flag. Match the auth header in ANY case,
+    // since a caller-provided lowercase `authorization` survives the spread.
+    const safeHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headers)) {
+      safeHeaders[k] = /^authorization$/i.test(k) ? redactBearer(v) : v;
+    }
     console.error(`[DEBUG] Headers: ${JSON.stringify(safeHeaders, null, 2)}`);
     if (fetchOptions.body) {
       console.error(`[DEBUG] Body: ${typeof fetchOptions.body === 'string' ? fetchOptions.body : JSON.stringify(fetchOptions.body)}`);
