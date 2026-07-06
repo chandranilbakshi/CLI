@@ -83,7 +83,7 @@ export interface StoredCredentials {
   refresh_token: string;
   /**
    * A user API key (`uak_`) used DIRECTLY as the Bearer token — no exchange,
-   * no refresh (set by `login --api-key`). When present it takes priority over
+   * no refresh (set by `login --user-api-key`). When present it takes priority over
    * `access_token`; a 401 means the key was revoked/expired (re-login needed).
    * Its presence is the discriminator — see `isDirectApiKeyLogin()`.
    */

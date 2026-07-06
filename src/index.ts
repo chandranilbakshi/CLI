@@ -284,7 +284,10 @@ async function showInteractiveMenu(): Promise<void> {
 
   try {
     const creds = getCredentials();
-    isLoggedIn = !!(creds?.user_api_key || creds?.access_token);
+    // Any credential requireAuth() can act on counts as logged in: a direct
+    // key, a live access token, or a refresh token it can mint/migrate from
+    // (OAuth refresh or a legacy exchange-PAT uak_).
+    isLoggedIn = !!(creds?.user_api_key || creds?.access_token || creds?.refresh_token);
   } catch { /* corrupted credentials file */ }
 
   try {

@@ -39,6 +39,18 @@ export interface PlatformFetchOptions extends RequestInit {
   passThroughStatuses?: number[];
 }
 
+/**
+ * Mask a bearer credential for debug output: keep only a short prefix and the
+ * last 4 chars so a leaked debug line can't be used, while staying enough to
+ * eyeball which key is in play.
+ */
+function redactBearer(authHeader: string | undefined): string {
+  if (!authHeader) return '<none>';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  if (token.length <= 12) return 'Bearer ***';
+  return `Bearer ${token.slice(0, 8)}…${token.slice(-4)}`;
+}
+
 export async function platformFetch(
   path: string,
   options: PlatformFetchOptions = {},
@@ -67,7 +79,11 @@ export async function platformFetch(
   const fullUrl = `${baseUrl}${path}`;
   if (process.env.INSFORGE_DEBUG) {
     console.error(`[DEBUG] ${fetchOptions.method ?? 'GET'} ${fullUrl}`);
-    console.error(`[DEBUG] Headers: ${JSON.stringify(headers, null, 2)}`);
+    // Redact the bearer credential. For direct-key sessions it is now the
+    // long-lived, non-rotating uak_ (not a short-lived JWT), so never write it
+    // in full — even behind the debug flag.
+    const safeHeaders = { ...headers, Authorization: redactBearer(headers.Authorization) };
+    console.error(`[DEBUG] Headers: ${JSON.stringify(safeHeaders, null, 2)}`);
     if (fetchOptions.body) {
       console.error(`[DEBUG] Body: ${typeof fetchOptions.body === 'string' ? fetchOptions.body : JSON.stringify(fetchOptions.body)}`);
     }

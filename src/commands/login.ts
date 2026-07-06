@@ -171,7 +171,14 @@ async function fetchProfileWithApiKey(apiKey: string, apiUrl?: string): Promise<
     throw new CLIError(formatFetchError(err, url));
   }
   if (!res.ok) {
-    throw new CLIError(`API key is invalid or revoked: HTTP ${res.status}`);
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    const detail = body.message ?? body.error;
+    // Only claim the key itself is bad on an actual auth failure. A 5xx/429
+    // (outage, rate limit) must NOT tell the user to rotate a valid key.
+    if (res.status === 401 || res.status === 403) {
+      throw new CLIError(`API key is invalid or revoked${detail ? `: ${detail}` : ''}`);
+    }
+    throw new CLIError(`Could not verify API key (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
   }
 
   const profile = (await res.json().catch(() => null)) as { user?: User } | User | null;
