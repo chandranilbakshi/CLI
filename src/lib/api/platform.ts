@@ -1,4 +1,4 @@
-import { getAccessToken, getPlatformApiUrl } from '../config.js';
+import { getAccessToken, getCredentials, getPlatformApiUrl } from '../config.js';
 import { AuthError, CLIError, formatFetchError } from '../errors.js';
 import { refreshAccessToken } from '../credentials.js';
 import type {
@@ -39,6 +39,18 @@ export interface PlatformFetchOptions extends RequestInit {
   passThroughStatuses?: number[];
 }
 
+/**
+ * Mask a bearer credential for debug output: keep only a short prefix and the
+ * last 4 chars so a leaked debug line can't be used, while staying enough to
+ * eyeball which key is in play.
+ */
+function redactBearer(authHeader: string | undefined): string {
+  if (!authHeader) return '<none>';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  if (token.length <= 12) return 'Bearer ***';
+  return `Bearer ${token.slice(0, 8)}…${token.slice(-4)}`;
+}
+
 export async function platformFetch(
   path: string,
   options: PlatformFetchOptions = {},
@@ -46,7 +58,15 @@ export async function platformFetch(
 ): Promise<Response> {
   const { passThroughStatuses, ...fetchOptions } = options;
   const baseUrl = getPlatformApiUrl(apiUrl);
-  const token = getAccessToken();
+  let token = getAccessToken();
+  if (!token) {
+    // No usable bearer (e.g. an OAuth/exchange session whose access_token was
+    // cleared) but a refresh token can mint one. Direct-API-key logins never
+    // reach here — getAccessToken returns the uak_ itself.
+    if (getCredentials()?.refresh_token) {
+      token = await refreshAccessToken(apiUrl);
+    }
+  }
   if (!token) {
     throw new AuthError();
   }
@@ -59,7 +79,15 @@ export async function platformFetch(
   const fullUrl = `${baseUrl}${path}`;
   if (process.env.INSFORGE_DEBUG) {
     console.error(`[DEBUG] ${fetchOptions.method ?? 'GET'} ${fullUrl}`);
-    console.error(`[DEBUG] Headers: ${JSON.stringify(headers, null, 2)}`);
+    // Redact the bearer credential. For direct-key sessions it is now the
+    // long-lived, non-rotating uak_ (not a short-lived JWT), so never write it
+    // in full — even behind the debug flag. Match the auth header in ANY case,
+    // since a caller-provided lowercase `authorization` survives the spread.
+    const safeHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headers)) {
+      safeHeaders[k] = /^authorization$/i.test(k) ? redactBearer(v) : v;
+    }
+    console.error(`[DEBUG] Headers: ${JSON.stringify(safeHeaders, null, 2)}`);
     if (fetchOptions.body) {
       console.error(`[DEBUG] Body: ${typeof fetchOptions.body === 'string' ? fetchOptions.body : JSON.stringify(fetchOptions.body)}`);
     }

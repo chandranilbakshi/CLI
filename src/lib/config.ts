@@ -130,7 +130,15 @@ export function getFrontendUrl(): string {
 }
 
 export function getAccessToken(): string | null {
-  return process.env.INSFORGE_ACCESS_TOKEN ?? getCredentials()?.access_token ?? null;
+  // Env override wins and must work even if credentials.json is missing or
+  // corrupt — so check it BEFORE reading/parsing the file (getCredentials can
+  // throw on malformed JSON).
+  if (process.env.INSFORGE_ACCESS_TOKEN) return process.env.INSFORGE_ACCESS_TOKEN;
+  // Then: direct user API key (uak_) > OAuth/exchange JWT. refresh_token is
+  // intentionally NOT a fallback here — it is refresh fuel, not a bearer
+  // credential (an OAuth refresh token would just 401).
+  const creds = getCredentials();
+  return creds?.user_api_key ?? creds?.access_token ?? null;
 }
 
 export function getProjectId(override?: string): string | null {

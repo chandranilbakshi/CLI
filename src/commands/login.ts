@@ -14,7 +14,7 @@ export function registerLoginCommand(program: Command): void {
     .description('Authenticate with InsForge platform')
     .option('--email', 'Login with email and password instead of browser')
     .option('--client-id <id>', 'OAuth client ID (defaults to insforge-cli)')
-    .option('--user-api-key <key>', 'Authenticate with a uak_ personal access token')
+    .option('--user-api-key <key>', 'Authenticate with a uak_ user API key')
     .action(async (opts, cmd) => {
       const { json, apiUrl } = getRootOpts(cmd);
 
@@ -110,6 +110,11 @@ async function loginWithOAuth(json: boolean, apiUrl?: string): Promise<void> {
   }
 }
 
+/**
+ * Log in with a uak_ user API key used DIRECTLY as the bearer credential — no
+ * exchange endpoint, no JWT, no refresh cycle. We fetch the profile once
+ * (authenticating with the key itself) to validate it and persist identity.
+ */
 async function loginWithUserApiKey(
   key: string,
   json: boolean,
@@ -126,12 +131,9 @@ async function loginWithUserApiKey(
   const s = !json ? clack.spinner() : null;
   s?.start('Verifying API key...');
 
-  let jwt: string;
   let user: User;
   try {
-    const exchanged = await exchangePatForJwt(key, apiUrl);
-    jwt = exchanged.token;
-    user = exchanged.user;
+    user = await fetchProfileWithApiKey(key, apiUrl);
   } catch (err) {
     s?.stop('API key verification failed');
     throw err instanceof CLIError
@@ -139,11 +141,13 @@ async function loginWithUserApiKey(
       : new CLIError(err instanceof Error ? err.message : String(err));
   }
 
-  // Storage: access_token holds the JWT, refresh_token holds the PAT.
-  // Detect PAT login later by checking refresh_token.startsWith('uak_').
+  // Store the uak_ as the direct bearer credential. access_token/refresh_token
+  // stay empty so getAccessToken() serves user_api_key, and refresh logic
+  // treats this as a non-refreshable direct login (isDirectApiKeyLogin).
   saveCredentials({
-    access_token: jwt,
-    refresh_token: key,
+    access_token: '',
+    refresh_token: '',
+    user_api_key: key,
     user,
   });
 
@@ -155,68 +159,38 @@ async function loginWithUserApiKey(
   }
 }
 
-/**
- * Exchange a uak_ PAT for a short-lived JWT via the backend exchange endpoint.
- * The PAT itself is never stored as an access token — we store the JWT and
- * keep the PAT only for silent re-exchange when the JWT expires.
- */
-async function exchangePatForJwt(
-  apiKey: string,
-  apiUrl?: string,
-): Promise<{ token: string; user: User }> {
+/** Fetch the user profile authenticating with a uak_ key directly as Bearer. */
+async function fetchProfileWithApiKey(apiKey: string, apiUrl?: string): Promise<User> {
   const baseUrl = getPlatformApiUrl(apiUrl);
-  const fullUrl = `${baseUrl}/auth/v1/exchange-api-key`;
+  const url = `${baseUrl}/auth/v1/profile`;
 
   let res: Response;
   try {
-    res = await fetch(fullUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey }),
-    });
+    res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
   } catch (err) {
-    throw new CLIError(formatFetchError(err, fullUrl));
+    throw new CLIError(formatFetchError(err, url));
   }
-
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      message?: string;
-    };
-    const msg = body.message ?? body.error ?? `HTTP ${res.status}`;
-    throw new CLIError(`API key is invalid or revoked: ${msg}`);
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    const detail = body.message ?? body.error;
+    // Only claim the key itself is bad on an actual auth failure. A 5xx/429
+    // (outage, rate limit) must NOT tell the user to rotate a valid key.
+    if (res.status === 401 || res.status === 403) {
+      throw new CLIError(`API key is invalid or revoked${detail ? `: ${detail}` : ''}`);
+    }
+    throw new CLIError(`Could not verify API key (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
   }
 
-  const data = (await res.json().catch(() => ({}))) as { token?: unknown };
-  if (typeof data.token !== 'string' || data.token.length === 0) {
-    throw new CLIError('Exchange endpoint returned an invalid response (missing token).');
-  }
-  const jwt = data.token;
-
-  // The exchange endpoint returns only the JWT. Fetch the user via /auth/v1/profile
-  // using the fresh JWT so we can persist identity in credentials.json.
-  let profileRes: Response;
-  try {
-    profileRes = await fetch(`${baseUrl}/auth/v1/profile`, {
-      headers: { Authorization: `Bearer ${jwt}` },
-    });
-  } catch (err) {
-    throw new CLIError(formatFetchError(err, `${baseUrl}/auth/v1/profile`));
-  }
-  if (!profileRes.ok) {
-    throw new CLIError(`Exchange succeeded but could not fetch profile: HTTP ${profileRes.status}`);
-  }
-  const profile = (await profileRes.json().catch(() => null)) as
-    | { user?: User }
-    | User
-    | null;
+  const profile = (await res.json().catch(() => null)) as { user?: User } | User | null;
   const user =
     profile && typeof profile === 'object' && 'user' in profile
       ? (profile as { user?: User }).user
       : ((profile as User | null) ?? undefined);
-  if (!user) {
-    throw new CLIError('Exchange succeeded but profile response was empty');
+  // Require a real identity, not just a truthy value: the flat-shape fallback
+  // can yield `{}` from an empty body, which would persist a malformed user
+  // and print "Authenticated as undefined".
+  if (!user?.id) {
+    throw new CLIError('Profile response was empty or malformed');
   }
-
-  return { token: jwt, user };
+  return user;
 }

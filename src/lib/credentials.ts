@@ -5,9 +5,14 @@ import * as clack from '@clack/prompts';
 import * as prompts from './prompts.js';
 import type { StoredCredentials } from '../types.js';
 
-/** True if stored credentials represent a PAT-based login (refresh_token is a uak_ token). */
+/** True if stored credentials represent an exchange-based PAT login (refresh_token is a uak_ token). */
 export function isPatLogin(creds: StoredCredentials | null | undefined): boolean {
   return creds?.refresh_token?.startsWith('uak_') ?? false;
+}
+
+/** True if stored credentials use a direct user API key (uak_) as the bearer token. */
+export function isDirectApiKeyLogin(creds: StoredCredentials | null | undefined): boolean {
+  return !!creds?.user_api_key;
 }
 
 export async function requireAuth(apiUrl?: string, allowOssBypass = true): Promise<StoredCredentials> {
@@ -27,7 +32,8 @@ export async function requireAuth(apiUrl?: string, allowOssBypass = true): Promi
   }
 
   const creds = getCredentials();
-  if (creds && creds.access_token) return creds;
+  // A direct API key or a present access token is enough to proceed.
+  if (creds && (creds.user_api_key || creds.access_token)) return creds;
 
   // PAT session with an expired/empty access_token: silently re-exchange
   // instead of prompting for browser OAuth.
@@ -63,40 +69,23 @@ export async function refreshAccessToken(apiUrl?: string): Promise<string> {
 
   const platformUrl = getPlatformApiUrl(apiUrl);
 
-  // PAT branch: re-exchange the stored uak_ for a fresh JWT.
+  // Direct API key: the uak_ IS the credential and cannot be refreshed.
+  // Reaching here means a request 401'd with the key attached, i.e. the key was
+  // revoked or expired — surface a clear re-login message rather than looping.
+  if (isDirectApiKeyLogin(creds)) {
+    throw new AuthError(
+      'API key is invalid, revoked, or expired. Run `npx @insforge/cli login --user-api-key <new-key>` again.'
+    );
+  }
+
+  // Legacy exchange-PAT session (created by an older CLI: uak_ in refresh_token,
+  // JWT in access_token). The uak_ now authenticates directly, so migrate this
+  // session to direct auth instead of calling the deprecated exchange endpoint.
+  // One-time, no network: promote the key and reuse it going forward.
   if (isPatLogin(creds)) {
-    let res: Response;
-    try {
-      res = await fetch(`${platformUrl}/auth/v1/exchange-api-key`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: creds.refresh_token }),
-      });
-    } catch {
-      // Background refresh path — surface a network error clearly.
-      throw new AuthError(
-        `Unable to reach auth server at ${platformUrl}. Check your network connection.`
-      );
-    }
-    if (!res.ok) {
-      // Auth failures (401/403/404) mean the PAT is actually bad — ask the user
-      // to rotate. Everything else (5xx, 429, gateway errors) is transient and
-      // shouldn't instruct the user to rotate a healthy key.
-      if (res.status === 401 || res.status === 403 || res.status === 404) {
-        throw new AuthError(
-          'API key is invalid or revoked. Run `npx @insforge/cli login --user-api-key <new-key>` again.'
-        );
-      }
-      throw new AuthError(
-        `Auth server returned HTTP ${res.status} while refreshing session. Please retry shortly.`
-      );
-    }
-    const data = (await res.json().catch(() => ({}))) as { token?: unknown };
-    if (typeof data.token !== 'string' || data.token.length === 0) {
-      throw new AuthError('Exchange endpoint returned an invalid response (missing token).');
-    }
-    saveCredentials({ ...creds, access_token: data.token });
-    return data.token;
+    const key = creds.refresh_token;
+    saveCredentials({ ...creds, user_api_key: key, access_token: '', refresh_token: '' });
+    return key;
   }
 
   if (!creds.refresh_token) {
