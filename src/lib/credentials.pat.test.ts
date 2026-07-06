@@ -27,8 +27,8 @@ describe('isPatLogin', () => {
   });
 
   // A direct-API-key login stores the uak_ in user_api_key, NOT refresh_token,
-  // so it must not be mistaken for an exchange-based PAT login (which would try
-  // to re-exchange it against the deprecated endpoint).
+  // so it must not be mistaken for a legacy exchange-PAT session (which the
+  // refresh path migrates by promoting refresh_token -> user_api_key).
   it('returns false for a direct-API-key login (uak_ in user_api_key, empty refresh_token)', () => {
     const creds: StoredCredentials = {
       access_token: '',
