@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import * as clack from '@clack/prompts';
 import * as prompts from './lib/prompts.js';
 import { getCredentials, getProjectConfig } from './lib/config.js';
+import { outputJson } from './lib/output.js';
 import { registerLoginCommand } from './commands/login.js';
 import { registerLogoutCommand } from './commands/logout.js';
 import { registerWhoamiCommand } from './commands/whoami.js';
@@ -104,6 +105,7 @@ const INSFORGE_LOGO = `
 `;
 
 const program = new Command();
+let didPlayForgerAnimation = false;
 
 program
   .name('insforge')
@@ -113,12 +115,29 @@ program
 // Global options
 program
   .option('--json', 'Output in JSON format')
+  .option('--forger', 'Play the Forger animation and return to the interactive menu')
   .option('--api-url <url>', 'Override Platform API URL')
   .option('-y, --yes', 'Skip confirmation prompts')
   .option('--reason <text>', 'Agent: what the operation does and why (intent) — shown to the human approver for destructive operations')
   .option('--impact <text>', 'Agent: implications — who/what is affected, data loss, reversibility — shown on the approval page')
   .option('--recommendation <text>', 'Agent: your recommendation to the human approver')
   .option('--flag-destructive [reason]', 'Agent: flag this op as destructive for human approval even if InsForge\'s rules consider it safe (escalate-only — cannot downgrade the verdict)');
+
+program.hook('preAction', async (_thisCommand, actionCommand) => {
+  if (!process.stdout.isTTY || didPlayForgerAnimation) return;
+  if (actionCommand !== program) return;
+
+  const opts = actionCommand.optsWithGlobals() as { forger?: boolean };
+  if (!opts.forger) return;
+
+  didPlayForgerAnimation = true;
+  try {
+    const { playForgerAnimation } = await import('./lib/forger.js');
+    await playForgerAnimation();
+  } catch (err) {
+    console.error('Failed to play forger animation:', err);
+  }
+});
 
 // Human-in-the-loop guard: a dispatch-pipeline stage that stops dangerous
 // operations for human approval. Lives in the CLI so it protects every caller
@@ -272,11 +291,22 @@ registerSchedulesLogsCommand(schedulesCmd);
 // Config commands
 registerConfigCommand(program);
 
-if (process.argv.length <= 2 && process.stdout.isTTY) {
-  await showInteractiveMenu();
-} else {
-  await program.parseAsync();
-}
+program.action(async (options: { forger?: boolean; json?: boolean }) => {
+  const isInteractive = process.stdout.isTTY;
+  if (isInteractive) {
+    await showInteractiveMenu();
+  } else if (options.forger) {
+    const message = 'The --forger animation requires an interactive terminal. Run insforge in a TTY or omit --forger.';
+    if (options.json) {
+      outputJson({ error: message });
+    } else {
+      console.error(message);
+    }
+    process.exitCode = 1;
+  }
+});
+
+await program.parseAsync();
 
 async function showInteractiveMenu(): Promise<void> {
   let isLoggedIn = false;
