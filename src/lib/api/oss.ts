@@ -213,6 +213,10 @@ export async function ossFetch(
       message = 'The web scraper is not available on this backend.\nThe Apify web scraper is cloud-only. Self-hosted: this feature is not supported. Cloud: contact your InsForge admin to enable it.';
     }
 
+    if (res.status === 404 && isRouteLevel404 && path.startsWith('/api/advisor')) {
+      message = 'Backend Advisor is not available on this backend.\nSelf-hosted: upgrade your InsForge instance. Cloud: update the project to a newer version.';
+    }
+
     throw new CLIError(message, 1, err.error, res.status);
   }
 
