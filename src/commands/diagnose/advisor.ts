@@ -1,17 +1,12 @@
 import type { Command } from 'commander';
-import { platformFetch, getProject } from '../../lib/api/platform.js';
+import { platformFetch } from '../../lib/api/platform.js';
 import { ossFetch } from '../../lib/api/oss.js';
 import { requireAuth } from '../../lib/credentials.js';
-import { handleError, getRootOpts, ProjectNotLinkedError } from '../../lib/errors.js';
+import { CLIError, handleError, getRootOpts, ProjectNotLinkedError } from '../../lib/errors.js';
 import { getProjectConfig, FAKE_PROJECT_ID } from '../../lib/config.js';
 import { outputJson, outputTable } from '../../lib/output.js';
 import { reportCliUsage } from '../../lib/skills.js';
 import { trackDiagnose, shutdownAnalytics } from '../../lib/analytics.js';
-
-// First InsForge OSS backend release that serves the advisor endpoints
-// (`/api/advisor/latest`, `/api/advisor/issues`). Projects on older backends
-// have no OSS advisor route, so we read their data from cloud-backend instead.
-const OSS_ADVISOR_MIN_VERSION = '2.2.7';
 
 interface AdvisorScanSummary {
   scanId: string;
@@ -41,45 +36,14 @@ interface AdvisorIssuesResponse {
 }
 
 /**
- * Parse a "MAJOR.MINOR.PATCH" version into a numeric tuple, tolerating a
- * leading `v` and trailing pre-release/build suffixes. Missing/non-numeric
- * segments become 0.
+ * True when an error from `ossFetch` is a route-level 404 — i.e. this backend
+ * is too old to expose the advisor endpoints at all. `ossFetch` throws a
+ * `CLIError` carrying the HTTP status for these. A backend that HAS the route
+ * but no scan yet returns 200 with a null/empty body, never a 404, so a 404
+ * here unambiguously means "route absent → fall back to cloud-backend".
  */
-function parseSemver(version: string): [number, number, number] {
-  const cleaned = version.trim().replace(/^v/i, '');
-  const [major, minor, patch] = cleaned
-    .split('.')
-    .map((part) => parseInt(part, 10));
-  return [
-    Number.isFinite(major) ? major : 0,
-    Number.isFinite(minor) ? minor : 0,
-    Number.isFinite(patch) ? patch : 0,
-  ];
-}
-
-/** True when `version` is >= `min`, compared numerically per segment. */
-function isVersionGte(version: string, min: string): boolean {
-  const a = parseSemver(version);
-  const b = parseSemver(min);
-  for (let i = 0; i < 3; i++) {
-    if (a[i] > b[i]) return true;
-    if (a[i] < b[i]) return false;
-  }
-  return true;
-}
-
-/**
- * In Platform mode, decide whether the project's own OSS backend is new enough
- * to serve the advisor endpoints itself, based on the Platform-tracked
- * `service_version` (the authoritative version; same source manage.ts and
- * update-version use). A Platform hiccup / null version degrades to `false`
- * (→ cloud-backend legacy path) rather than erroring.
- */
-async function platformProjectServesAdvisor(projectId: string, apiUrl?: string): Promise<boolean> {
-  const project = await getProject(projectId, apiUrl).catch(() => null);
-  const version = project?.service_version;
-  if (!version) return false;
-  return isVersionGte(version, OSS_ADVISOR_MIN_VERSION);
+function isOssAdvisorRouteMissing(err: unknown): boolean {
+  return err instanceof CLIError && err.statusCode === 404;
 }
 
 async function fetchOssAdvisorLatest(): Promise<AdvisorScanSummary | null> {
@@ -95,8 +59,15 @@ async function fetchOssAdvisorIssues(params: URLSearchParams): Promise<AdvisorIs
 async function fetchPlatformAdvisorLatest(
   projectId: string,
   apiUrl?: string,
-): Promise<AdvisorScanSummary> {
-  const res = await platformFetch(`/projects/v1/${projectId}/advisor/latest`, {}, apiUrl);
+): Promise<AdvisorScanSummary | null> {
+  // 404 here means the legacy cloud-backend has no scan for this project — a
+  // normal "no scan yet" state, not a failure. Pass it through and return null.
+  const res = await platformFetch(
+    `/projects/v1/${projectId}/advisor/latest`,
+    { passThroughStatuses: [404] },
+    apiUrl,
+  );
+  if (res.status === 404) return null;
   return (await res.json()) as AdvisorScanSummary;
 }
 
@@ -107,9 +78,10 @@ async function fetchPlatformAdvisorIssues(
 ): Promise<AdvisorIssuesResponse> {
   const res = await platformFetch(
     `/projects/v1/${projectId}/advisor/latest/issues?${params.toString()}`,
-    {},
+    { passThroughStatuses: [404] },
     apiUrl,
   );
+  if (res.status === 404) return { issues: [], total: 0 };
   return (await res.json()) as AdvisorIssuesResponse;
 }
 
@@ -117,10 +89,12 @@ async function fetchPlatformAdvisorIssues(
  * Scan summary only, used by `diagnose` (no subcommand) to build the
  * aggregate health report.
  *
- * OSS `--api-key` mode: read the project's own OSS advisor directly (only
- * source; the oss.ts route-level-404 message guards old backends).
- * Platform mode: gate on the Platform-tracked `service_version` — >= 2.2.7
- * uses the project's OSS advisor, otherwise the cloud-backend legacy path.
+ * The project's own OSS backend is authoritative — it holds the data and its
+ * running version is the only thing that decides whether the advisor route
+ * exists. So we always try the OSS advisor first and only fall back to the
+ * legacy cloud-backend when the OSS route is absent (backend older than the
+ * advisor feature). This avoids trusting possibly-stale Platform metadata.
+ * OSS `--api-key` mode has no cloud-backend to fall back to.
  */
 export async function fetchAdvisorSummary(
   projectId: string,
@@ -129,10 +103,12 @@ export async function fetchAdvisorSummary(
   if (projectId === FAKE_PROJECT_ID) {
     return await fetchOssAdvisorLatest();
   }
-  if (await platformProjectServesAdvisor(projectId, apiUrl)) {
+  try {
     return await fetchOssAdvisorLatest();
+  } catch (err) {
+    if (!isOssAdvisorRouteMissing(err)) throw err;
+    return await fetchPlatformAdvisorLatest(projectId, apiUrl);
   }
-  return await fetchPlatformAdvisorLatest(projectId, apiUrl);
 }
 
 export function registerDiagnoseAdvisorCommand(diagnoseCmd: Command): void {
@@ -161,16 +137,17 @@ export function registerDiagnoseAdvisorCommand(diagnoseCmd: Command): void {
         let scan: AdvisorScanSummary | null;
         let issuesData: AdvisorIssuesResponse;
 
-        // Version gate. OSS `--api-key` mode: no Platform project to query, so
-        // hit the project's own OSS advisor directly — the oss.ts
-        // route-level-404 message guards backends too old to have the route.
-        // Platform mode: route by the Platform-tracked `service_version` —
-        // >= OSS_ADVISOR_MIN_VERSION uses the project's OSS advisor, older
-        // projects read from cloud-backend (which still holds their data).
-        if (ossMode || (await platformProjectServesAdvisor(projectId, apiUrl))) {
+        // Try the project's own OSS advisor first (it holds the data and its
+        // running version is what decides whether the route exists). In
+        // Platform mode, fall back to the legacy cloud-backend only when the
+        // OSS route is absent (backend older than the advisor feature). OSS
+        // `--api-key` mode has no fallback — the oss.ts route-level-404 message
+        // guards backends too old to have the route.
+        try {
           scan = await fetchOssAdvisorLatest();
           issuesData = await fetchOssAdvisorIssues(issueParams);
-        } else {
+        } catch (err) {
+          if (ossMode || !isOssAdvisorRouteMissing(err)) throw err;
           scan = await fetchPlatformAdvisorLatest(projectId, apiUrl);
           issuesData = await fetchPlatformAdvisorIssues(projectId, issueParams, apiUrl);
         }

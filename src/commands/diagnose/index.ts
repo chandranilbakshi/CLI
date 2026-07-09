@@ -76,10 +76,10 @@ async function collectDiagnosticData(
   }
 
   if (advisorResult.status === 'fulfilled') {
+    // A null summary is a healthy "no scan yet" state, not a failure — leave
+    // `advisor` null without recording an error so JSON consumers don't treat
+    // an unscanned project as a failed diagnostic run.
     advisor = advisorResult.value;
-    if (!advisor) {
-      errors.push('Advisor: No scan yet.');
-    }
   } else {
     errors.push(advisorResult.reason?.message ?? 'Advisor unavailable');
   }
