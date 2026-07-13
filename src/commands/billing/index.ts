@@ -161,13 +161,13 @@ export function registerBillingCommands(billingCmd: Command): void {
     .action(async (plan: string, opts, cmd) => {
       const { json, apiUrl } = getRootOpts(cmd);
       try {
-        await requireAuth(apiUrl);
-        // Only a subset of the backend plan enum is open for self-serve upgrade
-        // right now; reject anything else up front so we don't hand an
-        // unavailable plan off to Stripe checkout.
+        // Validate the plan before any network work (auth, checkout) so a typo
+        // like `billing upgrade enterprise` fails instantly. Only a subset of
+        // the backend plan enum is open for self-serve upgrade right now.
         if (!BILLING_PLANS.includes(plan)) {
           throw new CLIError(`Invalid plan "${plan}". Available plans: ${BILLING_PLANS.join(', ')}.`);
         }
+        await requireAuth(apiUrl);
         const orgId = await resolveOrgId(opts.orgId, json, apiUrl);
         const session = await createCheckoutSession(orgId, plan, apiUrl);
 
