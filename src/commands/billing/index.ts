@@ -9,14 +9,15 @@ import {
   createPortalSession,
 } from '../../lib/api/platform.js';
 import { requireAuth } from '../../lib/credentials.js';
-import { handleError, getRootOpts } from '../../lib/errors.js';
+import { handleError, getRootOpts, CLIError } from '../../lib/errors.js';
 import { resolveOrgId } from '../../lib/resolve-org.js';
 import { outputJson, outputTable, outputInfo } from '../../lib/output.js';
 import { trackCommandUsage } from '../../lib/command-telemetry.js';
 
-// Shown in help only. Not used to validate — the backend owns the plan enum,
-// so a hard-coded allowlist here could reject a newly added plan.
-const BILLING_PLANS = ['free', 'starter', 'pro', 'team', 'enterprise'];
+// Plans currently offered for self-serve upgrade. The backend owns the full
+// plan enum, but only these are open right now, so we gate locally to fail fast
+// with a clear message instead of sending a not-yet-available plan to Stripe.
+const BILLING_PLANS = ['free', 'pro'];
 
 /** Render a backend date-only string (YYYY-MM-DD) without UTC→local day shift. */
 function formatCalendarDate(d: string): string {
@@ -161,7 +162,12 @@ export function registerBillingCommands(billingCmd: Command): void {
       const { json, apiUrl } = getRootOpts(cmd);
       try {
         await requireAuth(apiUrl);
-        // Plan is validated server-side against the canonical billing enum.
+        // Only a subset of the backend plan enum is open for self-serve upgrade
+        // right now; reject anything else up front so we don't hand an
+        // unavailable plan off to Stripe checkout.
+        if (!BILLING_PLANS.includes(plan)) {
+          throw new CLIError(`Invalid plan "${plan}". Available plans: ${BILLING_PLANS.join(', ')}.`);
+        }
         const orgId = await resolveOrgId(opts.orgId, json, apiUrl);
         const session = await createCheckoutSession(orgId, plan, apiUrl);
 
